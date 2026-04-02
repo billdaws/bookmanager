@@ -1,0 +1,11 @@
+flowchart TD
+    A([User visits homepage]) --> B{Library configured?}
+    B -- No --> C[Display setup form]
+    C --> D[User enters library name\nand browses for directory path]
+    D --> E[Submit]
+    E --> F[Scan library directory\nfor book files]
+    F --> G[Extract metadata\nAuthor · Title · Format · etc.]
+    G --> H[(Store in SQLite)]
+    H --> I
+    B -- Yes --> I[Display library]
+    I --> J([Wait for user activity])

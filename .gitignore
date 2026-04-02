@@ -30,3 +30,6 @@ go.work.sum
 
 # Nix
 result
+
+# macOS
+.DS_Store

@@ -20,6 +20,38 @@
           vendorHash = "sha256-0y5g1lvsY0oX284JVl+p9UyJF+KvFUthAs3o3K/qd4Y=";
         };
 
+        apps.generate-diagrams = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "generate-diagrams" ''
+            set -euo pipefail
+            ${if pkgs.stdenv.isDarwin then ''
+              browser=""
+              for candidate in \
+                "/Applications/Chromium.app/Contents/MacOS/Chromium" \
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; do
+                if [ -x "$candidate" ]; then
+                  browser="$candidate"
+                  break
+                fi
+              done
+              if [ -z "''${browser:-}" ]; then
+                echo "error: no browser found; install Chromium, Chrome, or Brave" >&2
+                exit 1
+              fi
+            '' else ''
+              browser="${pkgs.chromium}/bin/chromium"
+            ''}
+            puppeteer_cfg=$(mktemp -t puppeteer-XXXXXX.json)
+            trap 'rm -f "$puppeteer_cfg"' EXIT
+            printf '{"executablePath":"%s"}' "$browser" > "$puppeteer_cfg"
+            for f in docs/*.mmd; do
+              echo "Rendering $f..."
+              ${pkgs.mermaid-cli}/bin/mmdc -p "$puppeteer_cfg" -i "$f" -o "''${f%.mmd}.svg"
+            done
+            echo "Done."
+          '');
+        };
+
         apps.upgrade-htmx = {
           type = "app";
           program = toString (pkgs.writeShellScript "upgrade-htmx" ''
@@ -47,6 +79,7 @@
 
             # Handy during development
             air          # live reload
+            mermaid-cli  # mmdc — diagram generation
           ];
         };
       }
