@@ -17,7 +17,12 @@
           version = "0.1.0";
           src = ./.;
 
-          vendorHash = "sha256-0y5g1lvsY0oX284JVl+p9UyJF+KvFUthAs3o3K/qd4Y=";
+          vendorHash = "sha256-5ITdC5Qklgj9Ag/imUuKUbpbGnWnKZRNQeRxnGkODvY=";
+        };
+
+        apps.default = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/bookmanager";
         };
 
         apps.generate-diagrams = {

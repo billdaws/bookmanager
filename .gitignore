@@ -28,6 +28,10 @@ go.work.sum
 .env
 .direnv
 
+# Build output
+bookmanager
+tmp/
+
 # Nix
 result
 

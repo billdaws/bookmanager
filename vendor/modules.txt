@@ -1,3 +1,6 @@
+# github.com/codingconcepts/env v0.0.0-20240618133406-5b0845441187
+## explicit; go 1.22.4
+github.com/codingconcepts/env
 # github.com/dustin/go-humanize v1.0.1
 ## explicit; go 1.16
 # github.com/google/uuid v1.6.0
