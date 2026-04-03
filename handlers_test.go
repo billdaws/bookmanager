@@ -31,7 +31,8 @@ func setupTestTemplates(t *testing.T) *template.Template {
 	return tmpl
 }
 
-func TestGetIndex_NoLibrary(t *testing.T) {
+// TestGetIndex_NoLibraries checks that the homepage lists no libraries when none exist.
+func TestGetIndex_NoLibraries(t *testing.T) {
 	db := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
@@ -44,19 +45,20 @@ func TestGetIndex_NoLibrary(t *testing.T) {
 		t.Errorf("status = %d, want 200", res.StatusCode)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, `action="/setup"`) {
-		t.Error("expected setup form in body")
-	}
-	if strings.Contains(body, "<ul>") {
-		t.Error("did not expect book list in body")
+	if !strings.Contains(body, "No libraries") {
+		t.Errorf("expected empty state message, got:\n%s", body)
 	}
 }
 
-func TestGetIndex_WithLibrary(t *testing.T) {
+// TestGetIndex_WithLibraries checks that all libraries appear on the homepage.
+func TestGetIndex_WithLibraries(t *testing.T) {
 	db := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
-	if err := createLibraryWithBooks(db, "My Books", "/books", []string{"a.epub", "b.pdf"}); err != nil {
+	if _, err := createLibraryWithBooks(db, "Sci-Fi", "/books/scifi", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createLibraryWithBooks(db, "History", "/books/history", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,15 +71,30 @@ func TestGetIndex_WithLibrary(t *testing.T) {
 		t.Errorf("status = %d, want 200", res.StatusCode)
 	}
 	body := w.Body.String()
-	if strings.Contains(body, `action="/setup"`) {
-		t.Error("did not expect setup form")
-	}
-	if !strings.Contains(body, "a.epub") || !strings.Contains(body, "b.pdf") {
-		t.Errorf("expected book filenames in body, got:\n%s", body)
+	if !strings.Contains(body, "Sci-Fi") || !strings.Contains(body, "History") {
+		t.Errorf("expected both library names in body, got:\n%s", body)
 	}
 }
 
-func TestPostSetup_Valid(t *testing.T) {
+// TestGetLibraryNew checks that the creation form is served.
+func TestGetLibraryNew(t *testing.T) {
+	tmpl := setupTestTemplates(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/library/new", nil)
+	w := httptest.NewRecorder()
+	handleLibraryNew(tmpl)(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", res.StatusCode)
+	}
+	if !strings.Contains(w.Body.String(), `action="/library"`) {
+		t.Error("expected form with action=/library")
+	}
+}
+
+// TestPostLibrary_Valid checks that a valid submission creates a library and redirects.
+func TestPostLibrary_Valid(t *testing.T) {
 	db := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
@@ -86,24 +103,28 @@ func TestPostSetup_Valid(t *testing.T) {
 	touch(t, dir, "two.pdf")
 
 	form := url.Values{"name": {"My Lib"}, "directory": {dir}}
-	req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleSetup(db, tmpl)(w, req)
+	handleCreateLibrary(db, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusSeeOther {
 		t.Errorf("status = %d, want 303", res.StatusCode)
 	}
-	if res.Header.Get("Location") != "/" {
-		t.Errorf("Location = %q, want /", res.Header.Get("Location"))
+	loc := res.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/library/") {
+		t.Errorf("Location = %q, want /library/{id}", loc)
 	}
 
-	exists, err := libraryExists(db)
-	if err != nil || !exists {
-		t.Errorf("expected library row in DB, err=%v exists=%v", err, exists)
+	libs, err := listLibraries(db)
+	if err != nil {
+		t.Fatal(err)
 	}
-	books, err := listBooks(db)
+	if len(libs) != 1 {
+		t.Errorf("expected 1 library, got %d", len(libs))
+	}
+	books, err := listBooks(db, libs[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,15 +133,16 @@ func TestPostSetup_Valid(t *testing.T) {
 	}
 }
 
-func TestPostSetup_MissingName(t *testing.T) {
+// TestPostLibrary_MissingName checks that an empty name returns 422.
+func TestPostLibrary_MissingName(t *testing.T) {
 	db := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	form := url.Values{"name": {""}, "directory": {t.TempDir()}}
-	req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleSetup(db, tmpl)(w, req)
+	handleCreateLibrary(db, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -130,22 +152,24 @@ func TestPostSetup_MissingName(t *testing.T) {
 	}
 }
 
-func TestPostSetup_BadDirectory(t *testing.T) {
+// TestPostLibrary_BadDirectory checks that a non-existent path returns 422.
+func TestPostLibrary_BadDirectory(t *testing.T) {
 	db := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	form := url.Values{"name": {"Lib"}, "directory": {"/does/not/exist"}}
-	req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleSetup(db, tmpl)(w, req)
+	handleCreateLibrary(db, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
 	}
 }
 
-func TestPostSetup_FileNotDir(t *testing.T) {
+// TestPostLibrary_FileNotDir checks that a path pointing to a file returns 422.
+func TestPostLibrary_FileNotDir(t *testing.T) {
 	db := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
@@ -155,32 +179,53 @@ func TestPostSetup_FileNotDir(t *testing.T) {
 	f.Close()
 
 	form := url.Values{"name": {"Lib"}, "directory": {path}}
-	req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleSetup(db, tmpl)(w, req)
+	handleCreateLibrary(db, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
 	}
 }
 
-func TestPostSetup_AlreadyConfigured(t *testing.T) {
+// TestGetLibrary checks that a library's book list is rendered correctly.
+func TestGetLibrary(t *testing.T) {
 	db := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
-	if err := createLibraryWithBooks(db, "Existing", t.TempDir(), nil); err != nil {
+	id, err := createLibraryWithBooks(db, "My Lib", "/books", []string{"a.epub", "b.pdf"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	form := url.Values{"name": {"Another"}, "directory": {t.TempDir()}}
-	req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodGet, "/library/"+id, nil)
+	req.SetPathValue("id", id)
 	w := httptest.NewRecorder()
-	handleSetup(db, tmpl)(w, req)
+	handleLibrary(db, tmpl)(w, req)
 
-	if w.Result().StatusCode != http.StatusConflict {
-		t.Errorf("status = %d, want 409", w.Result().StatusCode)
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", res.StatusCode)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "a.epub") || !strings.Contains(body, "b.pdf") {
+		t.Errorf("expected book filenames in body, got:\n%s", body)
+	}
+}
+
+// TestGetLibrary_NotFound checks that an unknown ID returns 404.
+func TestGetLibrary_NotFound(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/library/nonexistent", nil)
+	req.SetPathValue("id", "nonexistent")
+	w := httptest.NewRecorder()
+	handleLibrary(db, tmpl)(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Result().StatusCode)
 	}
 }
 

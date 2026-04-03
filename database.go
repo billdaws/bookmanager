@@ -49,14 +49,26 @@ func openDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func libraryExists(db *sql.DB) (bool, error) {
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM library").Scan(&count)
-	return count > 0, err
+func listLibraries(db *sql.DB) ([]Library, error) {
+	rows, err := db.Query("SELECT id, name, directory FROM library ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var libs []Library
+	for rows.Next() {
+		var l Library
+		if err := rows.Scan(&l.ID, &l.Name, &l.Directory); err != nil {
+			return nil, err
+		}
+		libs = append(libs, l)
+	}
+	return libs, rows.Err()
 }
 
-func getLibrary(db *sql.DB) (*Library, error) {
-	row := db.QueryRow("SELECT id, name, directory FROM library LIMIT 1")
+func getLibraryByID(db *sql.DB, id string) (*Library, error) {
+	row := db.QueryRow("SELECT id, name, directory FROM library WHERE id = ?", id)
 	var l Library
 	err := row.Scan(&l.ID, &l.Name, &l.Directory)
 	if err == sql.ErrNoRows {
@@ -65,10 +77,10 @@ func getLibrary(db *sql.DB) (*Library, error) {
 	return &l, err
 }
 
-func createLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) error {
+func createLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) (string, error) {
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 
@@ -78,7 +90,7 @@ func createLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) er
 		libraryID, name, dir,
 	)
 	if err != nil {
-		return fmt.Errorf("insert library: %w", err)
+		return "", fmt.Errorf("insert library: %w", err)
 	}
 
 	for _, filename := range filenames {
@@ -87,15 +99,18 @@ func createLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) er
 			uuid.New().String(), libraryID, filename,
 		)
 		if err != nil {
-			return fmt.Errorf("insert book %q: %w", filename, err)
+			return "", fmt.Errorf("insert book %q: %w", filename, err)
 		}
 	}
 
-	return tx.Commit()
+	return libraryID, tx.Commit()
 }
 
-func listBooks(db *sql.DB) ([]Book, error) {
-	rows, err := db.Query("SELECT id, filename FROM books ORDER BY filename")
+func listBooks(db *sql.DB, libraryID string) ([]Book, error) {
+	rows, err := db.Query(
+		"SELECT id, filename FROM books WHERE library_id = ? ORDER BY filename",
+		libraryID,
+	)
 	if err != nil {
 		return nil, err
 	}

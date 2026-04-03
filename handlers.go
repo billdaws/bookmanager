@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+type indexPageData struct {
+	Libraries []Library
+}
+
 type setupPageData struct {
 	Error     string
 	Name      string
@@ -21,37 +25,26 @@ type libraryPageData struct {
 
 func handleIndex(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		exists, err := libraryExists(db)
+		libs, err := listLibraries(db)
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
-
-		if !exists {
-			if err := tmpl.ExecuteTemplate(w, "setup", setupPageData{}); err != nil {
-				http.Error(w, "template error", http.StatusInternalServerError)
-			}
-			return
-		}
-
-		lib, err := getLibrary(db)
-		if err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
-			return
-		}
-		books, err := listBooks(db)
-		if err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
-			return
-		}
-
-		if err := tmpl.ExecuteTemplate(w, "library", libraryPageData{Library: lib, Books: books}); err != nil {
+		if err := tmpl.ExecuteTemplate(w, "index", indexPageData{Libraries: libs}); err != nil {
 			http.Error(w, "template error", http.StatusInternalServerError)
 		}
 	}
 }
 
-func handleSetup(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+func handleLibraryNew(tmpl *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := tmpl.ExecuteTemplate(w, "setup", setupPageData{}); err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
+		}
+	}
+}
+
+func handleCreateLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -81,27 +74,44 @@ func handleSetup(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 			return
 		}
 
-		exists, err := libraryExists(db)
-		if err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
-			return
-		}
-		if exists {
-			http.Error(w, "library already configured", http.StatusConflict)
-			return
-		}
-
 		filenames, err := scanDirectory(dir)
 		if err != nil {
 			http.Error(w, "could not scan directory", http.StatusInternalServerError)
 			return
 		}
 
-		if err := createLibraryWithBooks(db, name, dir, filenames); err != nil {
+		id, err := createLibraryWithBooks(db, name, dir, filenames)
+		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
 
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, r, "/library/"+id, http.StatusSeeOther)
+	}
+}
+
+func handleLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		lib, err := getLibraryByID(db, id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		books, err := listBooks(db, id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		if err := tmpl.ExecuteTemplate(w, "library", libraryPageData{Library: lib, Books: books}); err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
+		}
 	}
 }

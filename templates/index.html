@@ -1,3 +1,4 @@
+{{define "index"}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,6 +6,20 @@
     <title>Bookmanager</title>
 </head>
 <body>
-    <h1>Hello!</h1>
+    <h1>Libraries</h1>
+    <a href="/library/new">Add library</a>
+
+    {{if .Libraries}}
+    <ul>
+    {{range .Libraries}}
+        <li><a href="/library/{{.ID}}">{{.Name}}</a> <code>{{.Directory}}</code></li>
+    {{end}}
+    </ul>
+    {{else}}
+    <p>No libraries yet.</p>
+    {{end}}
+
+    <script src="/static/htmx.min.js"></script>
 </body>
 </html>
+{{end}}
