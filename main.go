@@ -48,6 +48,8 @@ func main() {
 	mux.HandleFunc("GET /library/new", handleLibraryNew(tmpl))
 	mux.HandleFunc("POST /library", handleCreateLibrary(db, tmpl))
 	mux.HandleFunc("GET /library/{id}", handleLibrary(db, tmpl))
+	mux.HandleFunc("GET /library/{id}/delete", handleLibraryDeleteConfirm(db, tmpl))
+	mux.HandleFunc("POST /library/{id}/delete", handleLibraryDelete(db, tmpl))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticSub)))
 
 	scheme := "http"

@@ -90,6 +90,63 @@ func handleCreateLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 	}
 }
 
+type confirmDeletePageData struct {
+	Library *Library
+	Error   string
+}
+
+func handleLibraryDeleteConfirm(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lib, err := getLibraryByID(db, r.PathValue("id"))
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			http.NotFound(w, r)
+			return
+		}
+		tmpl.ExecuteTemplate(w, "confirm-delete", confirmDeletePageData{Library: lib})
+	}
+}
+
+func handleLibraryDelete(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		lib, err := getLibraryByID(db, id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if r.FormValue("name") != lib.Name {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			tmpl.ExecuteTemplate(w, "confirm-delete", confirmDeletePageData{
+				Library: lib,
+				Error:   "Name does not match. Please try again.",
+			})
+			return
+		}
+
+		if _, err := deleteLibrary(db, id); err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
+}
+
 func handleLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")

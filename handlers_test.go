@@ -229,6 +229,134 @@ func TestGetLibrary_NotFound(t *testing.T) {
 	}
 }
 
+// TestGetLibraryDeleteConfirm checks that the confirmation page renders with the library name.
+func TestGetLibraryDeleteConfirm(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	id, err := createLibraryWithBooks(db, "Doomed Library", t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/library/"+id+"/delete", nil)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handleLibraryDeleteConfirm(db, tmpl)(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", res.StatusCode)
+	}
+	if !strings.Contains(w.Body.String(), "Doomed Library") {
+		t.Error("expected library name in confirmation page")
+	}
+}
+
+// TestGetLibraryDeleteConfirm_NotFound checks that an unknown ID returns 404.
+func TestGetLibraryDeleteConfirm_NotFound(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/library/nonexistent/delete", nil)
+	req.SetPathValue("id", "nonexistent")
+	w := httptest.NewRecorder()
+	handleLibraryDeleteConfirm(db, tmpl)(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Result().StatusCode)
+	}
+}
+
+// TestPostLibraryDelete_CorrectName checks that typing the correct name deletes the library.
+func TestPostLibraryDelete_CorrectName(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	id, err := createLibraryWithBooks(db, "My Library", t.TempDir(), []string{"a.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{"name": {"My Library"}}
+	req := httptest.NewRequest(http.MethodPost, "/library/"+id+"/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handleLibraryDelete(db, tmpl)(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", res.StatusCode)
+	}
+	if res.Header.Get("Location") != "/" {
+		t.Errorf("Location = %q, want /", res.Header.Get("Location"))
+	}
+
+	libs, err := listLibraries(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(libs) != 0 {
+		t.Errorf("expected library to be deleted, got %d", len(libs))
+	}
+	books, err := listBooks(db, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books) != 0 {
+		t.Errorf("expected books to be deleted, got %d", len(books))
+	}
+}
+
+// TestPostLibraryDelete_WrongName checks that a mismatched name returns 422.
+func TestPostLibraryDelete_WrongName(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	id, err := createLibraryWithBooks(db, "My Library", t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{"name": {"wrong name"}}
+	req := httptest.NewRequest(http.MethodPost, "/library/"+id+"/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handleLibraryDelete(db, tmpl)(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", res.StatusCode)
+	}
+
+	libs, err := listLibraries(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(libs) != 1 {
+		t.Error("library should not have been deleted")
+	}
+}
+
+// TestPostLibraryDelete_NotFound checks that an unknown ID returns 404.
+func TestPostLibraryDelete_NotFound(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	form := url.Values{"name": {"anything"}}
+	req := httptest.NewRequest(http.MethodPost, "/library/nonexistent/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", "nonexistent")
+	w := httptest.NewRecorder()
+	handleLibraryDelete(db, tmpl)(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Result().StatusCode)
+	}
+}
+
 func touch(t *testing.T, dir, name string) {
 	t.Helper()
 	f, err := os.Create(filepath.Join(dir, name))

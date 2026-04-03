@@ -8,6 +8,7 @@
 <body>
     <a href="/">← All libraries</a>
     <h1>{{.Library.Name}}</h1>
+    <a href="/library/{{.Library.ID}}/delete">Delete library</a>
     <p>{{len .Books}} book(s) in <code>{{.Library.Directory}}</code></p>
 
     <ul>

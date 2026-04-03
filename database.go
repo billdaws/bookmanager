@@ -106,6 +106,34 @@ func createLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) (s
 	return libraryID, tx.Commit()
 }
 
+func deleteLibrary(db *sql.DB, id string) (bool, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	// Check existence before deleting.
+	var count int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM library WHERE id = ?", id).Scan(&count); err != nil {
+		return false, err
+	}
+	if count == 0 {
+		return false, nil
+	}
+
+	// Delete books first to satisfy the foreign key constraint.
+	if _, err := tx.Exec("DELETE FROM books WHERE library_id = ?", id); err != nil {
+		return false, fmt.Errorf("delete books: %w", err)
+	}
+
+	if _, err := tx.Exec("DELETE FROM library WHERE id = ?", id); err != nil {
+		return false, fmt.Errorf("delete library: %w", err)
+	}
+
+	return true, tx.Commit()
+}
+
 func listBooks(db *sql.DB, libraryID string) ([]Book, error) {
 	rows, err := db.Query(
 		"SELECT id, filename FROM books WHERE library_id = ? ORDER BY filename",
