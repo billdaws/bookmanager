@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"html/template"
 	"net/http"
 	"os"
@@ -19,8 +20,9 @@ type setupPageData struct {
 }
 
 type libraryPageData struct {
-	Library *Library
-	Books   []Book
+	Library   *Library
+	Books     []Book
+	SyncError string
 }
 
 func handleIndex(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
@@ -161,13 +163,19 @@ func handleLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 			return
 		}
 
-		books, err := listBooks(db, id)
+		data := libraryPageData{Library: lib}
+
+		if err := syncLibrary(db, lib); err != nil {
+			data.SyncError = fmt.Sprintf("Could not sync library: %v", err)
+		}
+
+		data.Books, err = listBooks(db, id)
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
 
-		if err := tmpl.ExecuteTemplate(w, "library", libraryPageData{Library: lib, Books: books}); err != nil {
+		if err := tmpl.ExecuteTemplate(w, "library", data); err != nil {
 			http.Error(w, "template error", http.StatusInternalServerError)
 		}
 	}

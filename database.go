@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
@@ -93,17 +94,93 @@ func createLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) (s
 		return "", fmt.Errorf("insert library: %w", err)
 	}
 
-	for _, filename := range filenames {
-		_, err = tx.Exec(
-			"INSERT INTO books (id, library_id, filename) VALUES (?, ?, ?)",
-			uuid.New().String(), libraryID, filename,
-		)
-		if err != nil {
-			return "", fmt.Errorf("insert book %q: %w", filename, err)
-		}
+	if err := insertBooks(tx, libraryID, filenames); err != nil {
+		return "", err
 	}
 
 	return libraryID, tx.Commit()
+}
+
+// insertBooks inserts all filenames in a single INSERT statement.
+// It is a no-op if filenames is empty.
+func insertBooks(tx *sql.Tx, libraryID string, filenames []string) error {
+	if len(filenames) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(filenames))
+	args := make([]any, 0, len(filenames)*3)
+	for i, filename := range filenames {
+		placeholders[i] = "(?, ?, ?)"
+		args = append(args, uuid.New().String(), libraryID, filename)
+	}
+
+	query := "INSERT INTO books (id, library_id, filename) VALUES " + strings.Join(placeholders, ", ")
+	if _, err := tx.Exec(query, args...); err != nil {
+		return fmt.Errorf("insert books: %w", err)
+	}
+	return nil
+}
+
+func syncLibrary(db *sql.DB, lib *Library) error {
+	filenames, err := scanDirectory(lib.Directory)
+	if err != nil {
+		return err
+	}
+
+	books, err := listBooks(db, lib.ID)
+	if err != nil {
+		return err
+	}
+
+	onDisk := make(map[string]bool, len(filenames))
+	for _, f := range filenames {
+		onDisk[f] = true
+	}
+
+	inDB := make(map[string]string, len(books)) // filename → id
+	for _, b := range books {
+		inDB[b.Filename] = b.ID
+	}
+
+	var toAdd []string
+	for _, f := range filenames {
+		if _, exists := inDB[f]; !exists {
+			toAdd = append(toAdd, f)
+		}
+	}
+
+	var toRemove []any
+	for filename, id := range inDB {
+		if !onDisk[filename] {
+			toRemove = append(toRemove, id)
+		}
+	}
+
+	if len(toAdd) == 0 && len(toRemove) == 0 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := insertBooks(tx, lib.ID, toAdd); err != nil {
+		return err
+	}
+
+	if len(toRemove) > 0 {
+		placeholders := strings.Repeat("?,", len(toRemove))
+		placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
+		query := "DELETE FROM books WHERE id IN (" + placeholders + ")"
+		if _, err := tx.Exec(query, toRemove...); err != nil {
+			return fmt.Errorf("delete books: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 func deleteLibrary(db *sql.DB, id string) (bool, error) {

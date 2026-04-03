@@ -194,7 +194,11 @@ func TestGetLibrary(t *testing.T) {
 	db := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
-	id, err := createLibraryWithBooks(db, "My Lib", "/books", []string{"a.epub", "b.pdf"})
+	dir := t.TempDir()
+	touch(t, dir, "a.epub")
+	touch(t, dir, "b.pdf")
+
+	id, err := createLibraryWithBooks(db, "My Lib", dir, []string{"a.epub", "b.pdf"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,6 +215,93 @@ func TestGetLibrary(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "a.epub") || !strings.Contains(body, "b.pdf") {
 		t.Errorf("expected book filenames in body, got:\n%s", body)
+	}
+}
+
+// TestGetLibrary_SyncsNewFiles checks that files added to disk appear when the library is viewed.
+func TestGetLibrary_SyncsNewFiles(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	dir := t.TempDir()
+	touch(t, dir, "existing.epub")
+
+	id, err := createLibraryWithBooks(db, "My Lib", dir, []string{"existing.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a new file to disk after initial library creation.
+	touch(t, dir, "new.epub")
+
+	req := httptest.NewRequest(http.MethodGet, "/library/"+id, nil)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handleLibrary(db, tmpl)(w, req)
+
+	if !strings.Contains(w.Body.String(), "new.epub") {
+		t.Error("expected new.epub to appear after sync")
+	}
+}
+
+// TestGetLibrary_SyncsRemovedFiles checks that files deleted from disk disappear when the library is viewed.
+func TestGetLibrary_SyncsRemovedFiles(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	dir := t.TempDir()
+	touch(t, dir, "keep.epub")
+	touch(t, dir, "gone.epub")
+
+	id, err := createLibraryWithBooks(db, "My Lib", dir, []string{"keep.epub", "gone.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove a file from disk.
+	if err := os.Remove(filepath.Join(dir, "gone.epub")); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/library/"+id, nil)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handleLibrary(db, tmpl)(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "gone.epub") {
+		t.Error("expected gone.epub to be removed after sync")
+	}
+	if !strings.Contains(body, "keep.epub") {
+		t.Error("expected keep.epub to still be present")
+	}
+}
+
+// TestGetLibrary_SyncError checks that a missing directory shows existing books with a warning.
+func TestGetLibrary_SyncError(t *testing.T) {
+	db := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+
+	id, err := createLibraryWithBooks(db, "My Lib", "/no/such/path", []string{"a.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/library/"+id, nil)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handleLibrary(db, tmpl)(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", res.StatusCode)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "a.epub") {
+		t.Error("expected existing books to still be shown")
+	}
+	if !strings.Contains(body, "sync") {
+		t.Error("expected a sync error message")
 	}
 }
 
