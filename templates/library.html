@@ -8,7 +8,9 @@
 <body>
     <a href="/">← All libraries</a>
     <h1>{{.Library.Name}}</h1>
-    <a href="/library/{{.Library.ID}}/delete">Delete library</a>
+    <form action="/library/{{.Library.ID}}/delete" method="get">
+        <button type="submit">Delete library</button>
+    </form>
     <p>{{len .Books}} book(s) in <code>{{.Library.Directory}}</code></p>
 
     <ul>

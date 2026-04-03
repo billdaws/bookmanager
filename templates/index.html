@@ -7,7 +7,9 @@
 </head>
 <body>
     <h1>Libraries</h1>
-    <a href="/library/new">Add library</a>
+    <form action="/library/new" method="get">
+        <button type="submit">Add library</button>
+    </form>
 
     {{if .Libraries}}
     <ul>
