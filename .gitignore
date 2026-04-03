@@ -37,3 +37,11 @@ result
 
 # macOS
 .DS_Store
+
+# testing stuff
+testdata
+
+# SQLite DB
+*.db
+*.db-shm
+*.db-wal
