@@ -1,0 +1,23 @@
+{{define "library"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bookmanager — {{.Library.Name}}</title>
+</head>
+<body>
+    <h1>{{.Library.Name}}</h1>
+    <p>{{len .Books}} book(s) in <code>{{.Library.Directory}}</code></p>
+
+    <ul>
+    {{range .Books}}
+        <li>{{.Filename}}</li>
+    {{else}}
+        <li>No books found.</li>
+    {{end}}
+    </ul>
+
+    <script src="/static/htmx.min.js"></script>
+</body>
+</html>
+{{end}}

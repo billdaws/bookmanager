@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
 
@@ -13,10 +14,14 @@ import (
 //go:embed templates
 var templateFS embed.FS
 
+//go:embed static
+var staticFS embed.FS
+
 type config struct {
 	Port       string `env:"BOOKMANAGER_PORT" default:"47832"`
 	Host       string `env:"BOOKMANAGER_HOST" default:"localhost"`
 	TLSEnabled bool   `env:"BOOKMANAGER_TLS_ENABLED" default:"false"`
+	DBPath     string `env:"BOOKMANAGER_DB" default:"bookmanager.db"`
 }
 
 func main() {
@@ -25,18 +30,28 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	tmpl := template.Must(template.ParseFS(templateFS, "templates/index.html"))
+	db, err := openDB(cfg.DBPath)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
+	defer db.Close()
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if err := tmpl.Execute(w, nil); err != nil {
-			http.Error(w, "template error", http.StatusInternalServerError)
-		}
-	})
+	tmpl := template.Must(template.ParseFS(templateFS, "templates/*.html"))
+
+	staticSub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		log.Fatalf("static fs: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", handleIndex(db, tmpl))
+	mux.HandleFunc("POST /setup", handleSetup(db, tmpl))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticSub)))
 
 	scheme := "http"
 	if cfg.TLSEnabled {
 		scheme = "https"
 	}
 	log.Printf("Listening on %s://%s:%s", scheme, cfg.Host, cfg.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", cfg.Port), nil))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", cfg.Port), mux))
 }
