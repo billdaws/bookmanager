@@ -11,6 +11,10 @@
     <form action="/library/{{.Library.ID}}/delete" method="get">
         <button type="submit">Delete library</button>
     </form>
+    <form action="/library/{{.Library.ID}}" method="get">
+        <button type="submit">Refresh</button>
+    </form>
+
     {{if .SyncError}}
     <p class="error">sync error: {{.SyncError}}</p>
     {{end}}
