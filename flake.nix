@@ -57,6 +57,24 @@
           '');
         };
 
+        apps.test = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "test" ''
+            set -euo pipefail
+            all=0
+            for arg in "$@"; do
+              if [ "$arg" = "--all" ]; then all=1; fi
+            done
+            if [ "$all" = "1" ]; then
+              echo "Running all tests (including -race)..."
+              ${pkgs.go}/bin/go test -race ./...
+            else
+              echo "Running tests (pass --all to include -race)..."
+              ${pkgs.go}/bin/go test ./...
+            fi
+          '');
+        };
+
         apps.upgrade-htmx = {
           type = "app";
           program = toString (pkgs.writeShellScript "upgrade-htmx" ''
@@ -86,6 +104,10 @@
             air          # live reload
             mermaid-cli  # mmdc — diagram generation
           ];
+
+          shellHook = ''
+            alias t='nix run .#test -- --all'
+          '';
         };
       }
     ) // {
