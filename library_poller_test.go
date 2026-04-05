@@ -33,9 +33,9 @@ func TestLibraryPoller_PublishesOnNewFile(t *testing.T) {
 	}
 	lib, _ := getLibraryByID(poller.db, id)
 
-	received := make(chan []Book, 1)
+	received := make(chan LibraryBooksChangedPayload, 1)
 	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
-		received <- e.Payload.([]Book)
+		received <- e.Payload.(LibraryBooksChangedPayload)
 		return nil
 	})
 
@@ -45,9 +45,12 @@ func TestLibraryPoller_PublishesOnNewFile(t *testing.T) {
 	touch(t, dir, "new.epub")
 
 	select {
-	case books := <-received:
-		if !containsFilename(books, "new.epub") {
-			t.Errorf("expected new.epub in published books, got %v", filenames(books))
+	case delta := <-received:
+		if !containsFilename(delta.Added, "new.epub") {
+			t.Errorf("expected new.epub in Added, got %v", filenames(delta.Added))
+		}
+		if len(delta.Removed) != 0 {
+			t.Errorf("expected no Removed, got %v", filenames(delta.Removed))
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("timeout waiting for books.changed event")
@@ -70,9 +73,9 @@ func TestLibraryPoller_PublishesOnRemovedFile(t *testing.T) {
 	}
 	lib, _ := getLibraryByID(poller.db, id)
 
-	received := make(chan []Book, 1)
+	received := make(chan LibraryBooksChangedPayload, 1)
 	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
-		received <- e.Payload.([]Book)
+		received <- e.Payload.(LibraryBooksChangedPayload)
 		return nil
 	})
 
@@ -84,12 +87,12 @@ func TestLibraryPoller_PublishesOnRemovedFile(t *testing.T) {
 	}
 
 	select {
-	case books := <-received:
-		if containsFilename(books, "gone.epub") {
-			t.Error("gone.epub should not appear in published books")
+	case delta := <-received:
+		if !containsFilename(delta.Removed, "gone.epub") {
+			t.Errorf("expected gone.epub in Removed, got %v", filenames(delta.Removed))
 		}
-		if !containsFilename(books, "keep.epub") {
-			t.Error("keep.epub should still appear in published books")
+		if len(delta.Added) != 0 {
+			t.Errorf("expected no Added, got %v", filenames(delta.Added))
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("timeout waiting for books.changed event")
@@ -146,9 +149,9 @@ func TestLibraryPoller_StartsOnLibraryCreated(t *testing.T) {
 	}
 	lib, _ := getLibraryByID(poller.db, id)
 
-	received := make(chan []Book, 1)
+	received := make(chan LibraryBooksChangedPayload, 1)
 	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
-		received <- e.Payload.([]Book)
+		received <- e.Payload.(LibraryBooksChangedPayload)
 		return nil
 	})
 
@@ -157,9 +160,9 @@ func TestLibraryPoller_StartsOnLibraryCreated(t *testing.T) {
 	touch(t, dir, "new.epub")
 
 	select {
-	case books := <-received:
-		if !containsFilename(books, "new.epub") {
-			t.Errorf("expected new.epub in published books, got %v", filenames(books))
+	case delta := <-received:
+		if !containsFilename(delta.Added, "new.epub") {
+			t.Errorf("expected new.epub in Added, got %v", filenames(delta.Added))
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("timeout: poller was not started by library.created event")

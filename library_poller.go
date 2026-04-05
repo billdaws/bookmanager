@@ -49,7 +49,7 @@ func (p *LibraryPoller) poll(ctx context.Context, lib *Library) {
 	if err != nil {
 		p.errorf(lib, err)
 	}
-	lastState := booksToSet(books)
+	lastBooks := books
 
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
@@ -68,31 +68,36 @@ func (p *LibraryPoller) poll(ctx context.Context, lib *Library) {
 				p.errorf(lib, err)
 				continue
 			}
-			newState := booksToSet(books)
-			if !setsEqual(lastState, newState) {
-				lastState = newState
-				p.bridge.Publish(topicLibraryBooksChanged(lib.ID), books)
+			added, removed := diffBooks(lastBooks, books)
+			if len(added) > 0 || len(removed) > 0 {
+				lastBooks = books
+				p.bridge.Publish(topicLibraryBooksChanged(lib.ID), LibraryBooksChangedPayload{
+					Added:   added,
+					Removed: removed,
+				})
 			}
 		}
 	}
 }
 
-func booksToSet(books []Book) map[string]bool {
-	s := make(map[string]bool, len(books))
-	for _, b := range books {
-		s[b.Filename] = true
+func diffBooks(oldBooks, newBooks []Book) (added, removed []Book) {
+	oldSet := make(map[string]Book, len(oldBooks))
+	for _, b := range oldBooks {
+		oldSet[b.Filename] = b
 	}
-	return s
-}
-
-func setsEqual(a, b map[string]bool) bool {
-	if len(a) != len(b) {
-		return false
+	newSet := make(map[string]Book, len(newBooks))
+	for _, b := range newBooks {
+		newSet[b.Filename] = b
 	}
-	for k := range a {
-		if !b[k] {
-			return false
+	for filename, b := range newSet {
+		if _, exists := oldSet[filename]; !exists {
+			added = append(added, b)
 		}
 	}
-	return true
+	for filename, b := range oldSet {
+		if _, exists := newSet[filename]; !exists {
+			removed = append(removed, b)
+		}
+	}
+	return
 }
