@@ -105,9 +105,6 @@
             mermaid-cli  # mmdc — diagram generation
           ];
 
-          shellHook = ''
-            alias t='nix run .#test -- --all'
-          '';
         };
       }
     ) // {
