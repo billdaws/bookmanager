@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"os"
 	"testing"
 )
 
@@ -39,6 +40,31 @@ func TestCreateLibrary(t *testing.T) {
 	// Navigate to index — library should now be listed.
 	page.MustNavigate(base + "/")
 	page.MustElementR("a", "Test Library")
+}
+
+// TestDisplaysBooks creates a library whose directory already contains books
+// and verifies each book filename appears in the list on the library page.
+func TestDisplaysBooks(t *testing.T) {
+	base := newServer(t)
+	page := newPage(t)
+	dir := symlinkTestdata(t)
+
+	page.MustNavigate(base + "/library/new")
+	page.MustWaitLoad()
+	page.MustElement("#name").MustInput("My Library")
+	page.MustElement("#directory").MustInput(dir)
+	page.MustElement(`button[type="submit"]`).MustClick()
+	page.MustElement(`a[href="/"]`) // wait for library page
+
+	entries, err := os.ReadDir("testdata/raw")
+	if err != nil {
+		t.Fatalf("read testdata/raw: %v", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			page.MustElementR("li", e.Name())
+		}
+	}
 }
 
 // TestDeleteLibrary creates a library via the UI and then deletes it through

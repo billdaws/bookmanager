@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/billdaws/bookmanager/internal/events"
@@ -63,4 +64,28 @@ func newPage(t *testing.T) *rod.Page {
 	page := browser.MustPage("")
 	t.Cleanup(func() { page.MustClose() })
 	return page
+}
+
+// symlinkTestdata creates a temp dir and symlinks every file from testdata/raw
+// into it, giving each test an isolated copy of the shared book fixtures.
+func symlinkTestdata(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	entries, err := os.ReadDir("testdata/raw")
+	if err != nil {
+		t.Fatalf("read testdata/raw: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		src, err := filepath.Abs(filepath.Join("testdata/raw", e.Name()))
+		if err != nil {
+			t.Fatalf("abs path for %s: %v", e.Name(), err)
+		}
+		if err := os.Symlink(src, filepath.Join(dir, e.Name())); err != nil {
+			t.Fatalf("symlink %s: %v", e.Name(), err)
+		}
+	}
+	return dir
 }

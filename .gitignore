@@ -40,6 +40,8 @@ result
 
 # testing stuff
 testdata
+# but we do need e2e fixture data
+!internal/e2e/testdata
 
 # SQLite DB
 *.db
