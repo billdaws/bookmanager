@@ -10,6 +10,7 @@ import (
 // TestCreateLibrary navigates through the UI to create a library and verifies
 // it appears on the index page.
 func TestCreateLibrary(t *testing.T) {
+	t.Parallel()
 	base := newServer(t)
 	page := newPage(t)
 	dir := t.TempDir()
@@ -45,6 +46,7 @@ func TestCreateLibrary(t *testing.T) {
 // TestDisplaysBooks creates a library whose directory already contains books
 // and verifies each book filename appears in the list on the library page.
 func TestDisplaysBooks(t *testing.T) {
+	t.Parallel()
 	base := newServer(t)
 	page := newPage(t)
 	dir := symlinkTestdata(t)
@@ -70,6 +72,7 @@ func TestDisplaysBooks(t *testing.T) {
 // TestDeleteLibrary creates a library via the UI and then deletes it through
 // the confirmation flow, verifying it is gone from the index afterwards.
 func TestDeleteLibrary(t *testing.T) {
+	t.Parallel()
 	base := newServer(t)
 	page := newPage(t)
 	dir := t.TempDir()
