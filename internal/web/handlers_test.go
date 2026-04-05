@@ -13,17 +13,17 @@ import (
 	"time"
 
 	"github.com/billdaws/bookmanager/internal/events"
-	"github.com/billdaws/bookmanager/internal/storage/db"
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
 )
 
-func setupTestStore(t *testing.T) *db.Store {
+func setupTestStore(t *testing.T) *storage.Store {
 	t.Helper()
-	database, err := db.OpenDB(":memory:")
+	database, err := storage.OpenDB(":memory:")
 	if err != nil {
 		t.Fatalf("setupTestStore: %v", err)
 	}
 	t.Cleanup(func() { database.Close() })
-	return db.NewStore(database)
+	return storage.NewStore(database)
 }
 
 func setupTestTemplates(t *testing.T) *template.Template {
@@ -508,7 +508,7 @@ func TestHandleLibraryEvents_ReceivesFrame(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	bridge.Publish(events.TopicLibraryBooksChanged(id), events.LibraryBooksChangedPayload{
-		Added: []db.Book{{ID: "1", Filename: "new.epub"}},
+		Added: []storage.Book{{ID: "1", Filename: "new.epub"}},
 	})
 
 	time.Sleep(20 * time.Millisecond)

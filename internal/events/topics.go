@@ -3,7 +3,7 @@ package events
 import (
 	"fmt"
 
-	"github.com/billdaws/bookmanager/internal/storage/db"
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
 )
 
 const TopicLibraryCreated Topic = "library.created"
@@ -14,6 +14,6 @@ func TopicLibraryBooksChanged(libraryID string) Topic {
 
 // LibraryBooksChangedPayload is the payload for TopicLibraryBooksChanged events.
 type LibraryBooksChangedPayload struct {
-	Added   []db.Book
-	Removed []db.Book
+	Added   []storage.Book
+	Removed []storage.Book
 }

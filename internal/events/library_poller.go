@@ -5,12 +5,12 @@ import (
 	"log"
 	"time"
 
-	storagedb "github.com/billdaws/bookmanager/internal/storage/db"
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
 )
 
 // libraryStore is the subset of db.Store methods used by LibraryPoller.
 type libraryStore interface {
-	ListBooks(ctx context.Context, libraryID string) ([]storagedb.Book, error)
+	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
 	UpdateBooks(ctx context.Context, libraryID string, filesToAdd []string, bookIDsToRemove []string) error
 }
 
@@ -21,12 +21,12 @@ type LibraryPoller struct {
 	store    libraryStore
 	bridge   *EventBridge
 	interval time.Duration
-	onError  func(lib *storagedb.Library, err error)
+	onError  func(lib *storage.Library, err error)
 }
 
 // NewLibraryPoller creates a LibraryPoller. onError is called when a poll
 // cycle fails; pass nil to drop errors silently.
-func NewLibraryPoller(store libraryStore, bridge *EventBridge, interval time.Duration, onError func(*storagedb.Library, error)) *LibraryPoller {
+func NewLibraryPoller(store libraryStore, bridge *EventBridge, interval time.Duration, onError func(*storage.Library, error)) *LibraryPoller {
 	return &LibraryPoller{store: store, bridge: bridge, interval: interval, onError: onError}
 }
 
@@ -35,24 +35,24 @@ func NewLibraryPoller(store libraryStore, bridge *EventBridge, interval time.Dur
 // this way.
 func (p *LibraryPoller) Register(ctx context.Context) {
 	p.bridge.Subscribe(TopicLibraryCreated, "library-poller", func(e Event) error {
-		p.Start(ctx, e.Payload.(*storagedb.Library))
+		p.Start(ctx, e.Payload.(*storage.Library))
 		return nil
 	})
 }
 
 // Start begins polling lib's directory in a background goroutine.
 // The goroutine exits when ctx is cancelled.
-func (p *LibraryPoller) Start(ctx context.Context, lib *storagedb.Library) {
+func (p *LibraryPoller) Start(ctx context.Context, lib *storage.Library) {
 	go p.poll(ctx, lib)
 }
 
-func (p *LibraryPoller) errorf(lib *storagedb.Library, err error) {
+func (p *LibraryPoller) errorf(lib *storage.Library, err error) {
 	if p.onError != nil {
 		p.onError(lib, err)
 	}
 }
 
-func (p *LibraryPoller) poll(ctx context.Context, lib *storagedb.Library) {
+func (p *LibraryPoller) poll(ctx context.Context, lib *storage.Library) {
 	books, err := p.store.ListBooks(ctx, lib.ID)
 	if err != nil {
 		p.errorf(lib, err)
@@ -67,7 +67,7 @@ func (p *LibraryPoller) poll(ctx context.Context, lib *storagedb.Library) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := storagedb.SyncLibrary(ctx, p.store, lib); err != nil {
+			if err := storage.SyncLibrary(ctx, p.store, lib); err != nil {
 				p.errorf(lib, err)
 				continue
 			}
@@ -89,12 +89,12 @@ func (p *LibraryPoller) poll(ctx context.Context, lib *storagedb.Library) {
 	}
 }
 
-func diffBooks(oldBooks, newBooks []storagedb.Book) (added, removed []storagedb.Book) {
-	oldSet := make(map[string]storagedb.Book, len(oldBooks))
+func diffBooks(oldBooks, newBooks []storage.Book) (added, removed []storage.Book) {
+	oldSet := make(map[string]storage.Book, len(oldBooks))
 	for _, b := range oldBooks {
 		oldSet[b.Filename] = b
 	}
-	newSet := make(map[string]storagedb.Book, len(newBooks))
+	newSet := make(map[string]storage.Book, len(newBooks))
 	for _, b := range newBooks {
 		newSet[b.Filename] = b
 	}

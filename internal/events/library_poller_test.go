@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	storagedb "github.com/billdaws/bookmanager/internal/storage/db"
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
 )
 
 // testPollInterval is short so tests complete in a few poll cycles (~40–60ms
@@ -17,7 +17,7 @@ const testPollInterval = 20 * time.Millisecond
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	database, err := storagedb.OpenDB(":memory:")
+	database, err := storage.OpenDB(":memory:")
 	if err != nil {
 		t.Fatalf("setupTestDB: %v", err)
 	}
@@ -34,10 +34,10 @@ func touch(t *testing.T, dir, name string) {
 	f.Close()
 }
 
-func setupPoller(t *testing.T) (*LibraryPoller, *EventBridge, *storagedb.Store) {
+func setupPoller(t *testing.T) (*LibraryPoller, *EventBridge, *storage.Store) {
 	t.Helper()
 	bridge := NewEventBridge(nil)
-	store := storagedb.NewStore(setupTestDB(t))
+	store := storage.NewStore(setupTestDB(t))
 	poller := NewLibraryPoller(store, bridge, testPollInterval, nil)
 	return poller, bridge, store
 }
@@ -200,8 +200,8 @@ func TestLibraryPoller_ReportsErrorOnBadDirectory(t *testing.T) {
 
 	bridge := NewEventBridge(nil)
 	errCh := make(chan error, 1)
-	store := storagedb.NewStore(setupTestDB(t))
-	poller := NewLibraryPoller(store, bridge, testPollInterval, func(lib *storagedb.Library, err error) {
+	store := storage.NewStore(setupTestDB(t))
+	poller := NewLibraryPoller(store, bridge, testPollInterval, func(lib *storage.Library, err error) {
 		select {
 		case errCh <- err:
 		default:
@@ -226,7 +226,7 @@ func TestLibraryPoller_ReportsErrorOnBadDirectory(t *testing.T) {
 	}
 }
 
-func containsFilename(books []storagedb.Book, name string) bool {
+func containsFilename(books []storage.Book, name string) bool {
 	for _, b := range books {
 		if b.Filename == name {
 			return true
@@ -235,7 +235,7 @@ func containsFilename(books []storagedb.Book, name string) bool {
 	return false
 }
 
-func filenames(books []storagedb.Book) []string {
+func filenames(books []storage.Book) []string {
 	names := make([]string, len(books))
 	for i, b := range books {
 		names[i] = b.Filename

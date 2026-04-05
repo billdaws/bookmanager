@@ -11,21 +11,21 @@ import (
 
 	"github.com/billdaws/bookmanager/internal/events"
 	"github.com/billdaws/bookmanager/internal/scanner"
-	"github.com/billdaws/bookmanager/internal/storage/db"
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
 )
 
-// libraryStore is the subset of db.Store methods used by the library handlers.
+// libraryStore is the subset of storage.Store methods used by the library handlers.
 type libraryStore interface {
-	ListLibraries(ctx context.Context) ([]db.Library, error)
-	GetLibraryByID(ctx context.Context, id string) (*db.Library, error)
+	ListLibraries(ctx context.Context) ([]storage.Library, error)
+	GetLibraryByID(ctx context.Context, id string) (*storage.Library, error)
 	CreateLibraryWithBooks(ctx context.Context, name, dir string, filenames []string) (string, error)
 	UpdateBooks(ctx context.Context, libraryID string, filesToAdd []string, bookIDsToRemove []string) error
 	DeleteLibrary(ctx context.Context, id string) (bool, error)
-	ListBooks(ctx context.Context, libraryID string) ([]db.Book, error)
+	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
 }
 
 type indexPageData struct {
-	Libraries []db.Library
+	Libraries []storage.Library
 }
 
 type setupPageData struct {
@@ -35,13 +35,13 @@ type setupPageData struct {
 }
 
 type libraryPageData struct {
-	Library   *db.Library
-	Books     []db.Book
+	Library   *storage.Library
+	Books     []storage.Book
 	SyncError string
 }
 
 type confirmDeletePageData struct {
-	Library *db.Library
+	Library *storage.Library
 	Error   string
 }
 
@@ -108,7 +108,7 @@ func handleCreateLibrary(store libraryStore, tmpl *template.Template, bridge *ev
 			return
 		}
 
-		bridge.Publish(events.TopicLibraryCreated, &db.Library{ID: id, Name: name, Directory: dir})
+		bridge.Publish(events.TopicLibraryCreated, &storage.Library{ID: id, Name: name, Directory: dir})
 		http.Redirect(w, r, "/library/"+id, http.StatusSeeOther)
 	}
 }
@@ -234,7 +234,7 @@ func handleLibrary(store libraryStore, tmpl *template.Template) http.HandlerFunc
 
 		data := libraryPageData{Library: lib}
 
-		if err := db.SyncLibrary(r.Context(), store, lib); err != nil {
+		if err := storage.SyncLibrary(r.Context(), store, lib); err != nil {
 			data.SyncError = fmt.Sprintf("Could not sync library: %v", err)
 		}
 
