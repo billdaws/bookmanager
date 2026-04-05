@@ -91,15 +91,15 @@ func TestPollerUpdatesBookList(t *testing.T) {
 	page.MustElementR("li", "No books found.")
 
 	// Add a book — the poller picks it up and pushes an SSE update.
-	src, err := filepath.Abs("testdata/raw/wuthering-heights.epub")
+	src, err := filepath.Abs("testdata/raw/yellow-wallpaper.epub")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dst := filepath.Join(dir, "wuthering-heights.epub")
+	dst := filepath.Join(dir, "yellow-wallpaper.epub")
 	if err := os.Symlink(src, dst); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
-	page.MustElementR("li", "wuthering-heights.epub")
+	page.MustElementR("li", "yellow-wallpaper.epub")
 
 	// Remove the book — the poller notices and pushes another update.
 	if err := os.Remove(dst); err != nil {
