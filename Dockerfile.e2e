@@ -1,0 +1,14 @@
+FROM golang:1.26-bookworm
+
+RUN apt-get update && apt-get install -y \
+    chromium \
+    --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+CMD ["go", "test", "-v", "-tags", "e2e", "./internal/e2e/..."]

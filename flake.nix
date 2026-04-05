@@ -75,6 +75,15 @@
           '');
         };
 
+        apps.test-e2e = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "test-e2e" ''
+            set -euo pipefail
+            docker build -t bookmanager-e2e -f Dockerfile.e2e .
+            docker run --rm bookmanager-e2e
+          '');
+        };
+
         apps.upgrade-htmx = {
           type = "app";
           program = toString (pkgs.writeShellScript "upgrade-htmx" ''
