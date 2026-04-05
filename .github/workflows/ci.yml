@@ -17,3 +17,16 @@ jobs:
           go-version-file: go.mod
 
       - run: go test -race ./...
+
+  test-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: go test -tags e2e ./internal/e2e/...
+        env:
+          CHROMIUM_BIN: /usr/bin/google-chrome
