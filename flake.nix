@@ -103,6 +103,7 @@
             # Handy during development
             air          # live reload
             mermaid-cli  # mmdc — diagram generation
+            gnumake
           ];
 
         };
