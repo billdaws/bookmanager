@@ -3,11 +3,13 @@
 package e2e
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/billdaws/bookmanager/internal/events"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
@@ -64,6 +66,38 @@ func newPage(t *testing.T) *rod.Page {
 	page := browser.MustPage("")
 	t.Cleanup(func() { page.MustClose() })
 	return page
+}
+
+// newServerWithPoller is like newServer but also starts the library poller
+// with the given poll interval. Use this for tests that exercise real-time
+// book list updates via SSE.
+func newServerWithPoller(t *testing.T, interval time.Duration) string {
+	t.Helper()
+
+	database, err := storage.OpenDB(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	store := storage.NewStore(database)
+	bridge := events.NewEventBridge(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	poller := events.NewLibraryPoller(store, bridge, interval, nil)
+	poller.Register(ctx)
+
+	mux := http.NewServeMux()
+	if err := web.Register(mux, store, bridge); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv.URL
 }
 
 // symlinkTestdata creates a temp dir and symlinks every file from testdata/raw

@@ -4,7 +4,9 @@ package e2e
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestCreateLibrary navigates through the UI to create a library and verifies
@@ -67,6 +69,43 @@ func TestDisplaysBooks(t *testing.T) {
 			page.MustElementR("li", e.Name())
 		}
 	}
+}
+
+// TestPollerUpdatesBookList verifies that the filesystem poller detects changes
+// to a library directory and the SSE-driven book list updates in the browser
+// without a page reload.
+func TestPollerUpdatesBookList(t *testing.T) {
+	t.Parallel()
+	base := newServerWithPoller(t, 100*time.Millisecond)
+	page := newPage(t)
+	dir := t.TempDir()
+
+	// Create an empty library.
+	page.MustNavigate(base + "/library/new")
+	page.MustWaitLoad()
+	page.MustElement("#name").MustInput("Live Library")
+	page.MustElement("#directory").MustInput(dir)
+	page.MustElement(`button[type="submit"]`).MustClick()
+	page.MustElement(`a[href="/"]`) // wait for library page
+
+	page.MustElementR("li", "No books found.")
+
+	// Add a book — the poller picks it up and pushes an SSE update.
+	src, err := filepath.Abs("testdata/raw/wuthering-heights.epub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "wuthering-heights.epub")
+	if err := os.Symlink(src, dst); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	page.MustElementR("li", "wuthering-heights.epub")
+
+	// Remove the book — the poller notices and pushes another update.
+	if err := os.Remove(dst); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	page.MustElementR("li", "No books found.")
 }
 
 // TestDeleteLibrary creates a library via the UI and then deletes it through
