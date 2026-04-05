@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/google/uuid"
@@ -38,12 +40,17 @@ func openDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("foreign keys: %w", err)
 	}
 
-	goose.SetBaseFS(migrationsFS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		return nil, fmt.Errorf("goose dialect: %w", err)
+	fsys, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		return nil, fmt.Errorf("migrations fs: %w", err)
 	}
-	if err := goose.Up(db, "migrations"); err != nil {
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, fsys,
+		goose.WithLogger(goose.NopLogger()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("goose provider: %w", err)
+	}
+	if _, err := provider.Up(context.Background()); err != nil {
 		return nil, fmt.Errorf("goose up: %w", err)
 	}
 

@@ -1,0 +1,216 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// testPollInterval is short so tests complete in a few poll cycles (~40–60ms
+// in the happy path). The 2s timeout in each test is a failure guard only.
+const testPollInterval = 20 * time.Millisecond
+
+func setupPoller(t *testing.T) (*LibraryPoller, *EventBridge) {
+	t.Helper()
+	bridge := NewEventBridge(nil)
+	poller := NewLibraryPoller(setupTestDB(t), bridge, testPollInterval, nil)
+	return poller, bridge
+}
+
+// TestLibraryPoller_PublishesOnNewFile checks that adding a file to disk
+// triggers a books.changed event containing the new file.
+func TestLibraryPoller_PublishesOnNewFile(t *testing.T) {
+	t.Parallel()
+	poller, bridge := setupPoller(t)
+
+	dir := t.TempDir()
+	touch(t, dir, "existing.epub")
+
+	id, err := createLibraryWithBooks(poller.db, "My Lib", dir, []string{"existing.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, _ := getLibraryByID(poller.db, id)
+
+	received := make(chan []Book, 1)
+	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
+		received <- e.Payload.([]Book)
+		return nil
+	})
+
+	ctx := t.Context()
+	poller.Start(ctx, lib)
+
+	touch(t, dir, "new.epub")
+
+	select {
+	case books := <-received:
+		if !containsFilename(books, "new.epub") {
+			t.Errorf("expected new.epub in published books, got %v", filenames(books))
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("timeout waiting for books.changed event")
+	}
+}
+
+// TestLibraryPoller_PublishesOnRemovedFile checks that removing a file from
+// disk triggers a books.changed event without that file.
+func TestLibraryPoller_PublishesOnRemovedFile(t *testing.T) {
+	t.Parallel()
+	poller, bridge := setupPoller(t)
+
+	dir := t.TempDir()
+	touch(t, dir, "keep.epub")
+	touch(t, dir, "gone.epub")
+
+	id, err := createLibraryWithBooks(poller.db, "My Lib", dir, []string{"keep.epub", "gone.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, _ := getLibraryByID(poller.db, id)
+
+	received := make(chan []Book, 1)
+	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
+		received <- e.Payload.([]Book)
+		return nil
+	})
+
+	ctx := t.Context()
+	poller.Start(ctx, lib)
+
+	if err := os.Remove(filepath.Join(dir, "gone.epub")); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case books := <-received:
+		if containsFilename(books, "gone.epub") {
+			t.Error("gone.epub should not appear in published books")
+		}
+		if !containsFilename(books, "keep.epub") {
+			t.Error("keep.epub should still appear in published books")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("timeout waiting for books.changed event")
+	}
+}
+
+// TestLibraryPoller_NoPublishWhenUnchanged checks that no event is published
+// when the directory contents have not changed.
+// This test intentionally sleeps for several poll cycles.
+func TestLibraryPoller_NoPublishWhenUnchanged(t *testing.T) {
+	t.Parallel()
+	poller, bridge := setupPoller(t)
+
+	dir := t.TempDir()
+	touch(t, dir, "book.epub")
+
+	id, err := createLibraryWithBooks(poller.db, "My Lib", dir, []string{"book.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, _ := getLibraryByID(poller.db, id)
+
+	received := make(chan struct{}, 1)
+	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
+		received <- struct{}{}
+		return nil
+	})
+
+	ctx := t.Context()
+	poller.Start(ctx, lib)
+
+	time.Sleep(5 * testPollInterval)
+
+	select {
+	case <-received:
+		t.Error("unexpected event when nothing changed")
+	default:
+	}
+}
+
+// TestLibraryPoller_StartsOnLibraryCreated checks that publishing a
+// TopicLibraryCreated event causes the poller to start watching that library.
+func TestLibraryPoller_StartsOnLibraryCreated(t *testing.T) {
+	t.Parallel()
+	poller, bridge := setupPoller(t)
+
+	ctx := t.Context()
+	poller.Register(ctx)
+
+	dir := t.TempDir()
+	id, err := createLibraryWithBooks(poller.db, "My Lib", dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, _ := getLibraryByID(poller.db, id)
+
+	received := make(chan []Book, 1)
+	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
+		received <- e.Payload.([]Book)
+		return nil
+	})
+
+	bridge.Publish(TopicLibraryCreated, lib)
+
+	touch(t, dir, "new.epub")
+
+	select {
+	case books := <-received:
+		if !containsFilename(books, "new.epub") {
+			t.Errorf("expected new.epub in published books, got %v", filenames(books))
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("timeout: poller was not started by library.created event")
+	}
+}
+
+// TestLibraryPoller_ReportsErrorOnBadDirectory checks that a sync failure
+// (e.g. directory removed) is forwarded to the onError callback.
+func TestLibraryPoller_ReportsErrorOnBadDirectory(t *testing.T) {
+	t.Parallel()
+
+	bridge := NewEventBridge(nil)
+	errCh := make(chan error, 1)
+	poller := NewLibraryPoller(setupTestDB(t), bridge, testPollInterval, func(lib *Library, err error) {
+		select {
+		case errCh <- err:
+		default:
+		}
+	})
+
+	id, err := createLibraryWithBooks(poller.db, "My Lib", "/no/such/path", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, _ := getLibraryByID(poller.db, id)
+
+	poller.Start(t.Context(), lib)
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Error("expected non-nil error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("timeout waiting for error callback")
+	}
+}
+
+func containsFilename(books []Book, name string) bool {
+	for _, b := range books {
+		if b.Filename == name {
+			return true
+		}
+	}
+	return false
+}
+
+func filenames(books []Book) []string {
+	names := make([]string, len(books))
+	for i, b := range books {
+		names[i] = b.Filename
+	}
+	return names
+}
