@@ -2,6 +2,7 @@ package web
 
 import (
 	gosql "database/sql"
+	"context"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/billdaws/bookmanager/internal/events"
 	"github.com/billdaws/bookmanager/internal/storage/db"
 )
 
@@ -117,7 +120,7 @@ func TestPostLibrary_Valid(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(database, tmpl)(w, req)
+	handleCreateLibrary(database, tmpl, events.NewEventBridge(nil))(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusSeeOther {
@@ -153,7 +156,7 @@ func TestPostLibrary_MissingName(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(database, tmpl)(w, req)
+	handleCreateLibrary(database, tmpl, events.NewEventBridge(nil))(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -172,7 +175,7 @@ func TestPostLibrary_BadDirectory(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(database, tmpl)(w, req)
+	handleCreateLibrary(database, tmpl, events.NewEventBridge(nil))(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -193,7 +196,7 @@ func TestPostLibrary_FileNotDir(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(database, tmpl)(w, req)
+	handleCreateLibrary(database, tmpl, events.NewEventBridge(nil))(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -456,5 +459,66 @@ func TestPostLibraryDelete_NotFound(t *testing.T) {
 
 	if w.Result().StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Result().StatusCode)
+	}
+}
+
+// TestHandleLibraryEvents_NotFound checks that an unknown library ID returns 404.
+func TestHandleLibraryEvents_NotFound(t *testing.T) {
+	database := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+	bridge := events.NewEventBridge(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/library/nonexistent/events", nil)
+	req.SetPathValue("id", "nonexistent")
+	w := httptest.NewRecorder()
+
+	handleLibraryEvents(database, bridge, tmpl)(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Result().StatusCode)
+	}
+}
+
+// TestHandleLibraryEvents_ReceivesFrame checks that a browser receives an SSE frame
+// when a books-changed event is published for that library.
+func TestHandleLibraryEvents_ReceivesFrame(t *testing.T) {
+	database := setupTestDB(t)
+	tmpl := setupTestTemplates(t)
+	bridge := events.NewEventBridge(nil)
+
+	dir := t.TempDir()
+	id, err := db.CreateLibraryWithBooks(database, "My Lib", dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/library/"+id+"/events", nil)
+	req.SetPathValue("id", id)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	handlerDone := make(chan struct{})
+	go func() {
+		defer close(handlerDone)
+		handleLibraryEvents(database, bridge, tmpl)(w, req)
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	bridge.Publish(events.TopicLibraryBooksChanged(id), events.LibraryBooksChangedPayload{
+		Added: []db.Book{{ID: "1", Filename: "new.epub"}},
+	})
+
+	time.Sleep(20 * time.Millisecond)
+
+	cancel()
+	<-handlerDone
+
+	body := w.Body.String()
+	if !strings.Contains(body, "event: books-updated") {
+		t.Errorf("expected SSE frame, got:\n%q", body)
 	}
 }

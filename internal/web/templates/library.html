@@ -20,15 +20,15 @@
     {{end}}
     <p>{{len .Books}} book(s) in <code>{{.Library.Directory}}</code></p>
 
-    <ul>
-    {{range .Books}}
-        <li>{{.Filename}}</li>
-    {{else}}
-        <li>No books found.</li>
-    {{end}}
-    </ul>
+    {{template "book-list" .Books}}
 
-    <script src="/static/htmx.min.js"></script>
+    <script>
+const source = new EventSource('/library/{{.Library.ID}}/events');
+source.addEventListener('books-updated', function(e) {
+    document.getElementById('book-list').outerHTML = e.data;
+});
+window.addEventListener('beforeunload', () => source.close());
+    </script>
 </body>
 </html>
 {{end}}

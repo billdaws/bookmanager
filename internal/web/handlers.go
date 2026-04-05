@@ -1,17 +1,19 @@
 package web
 
 import (
+	gosql "database/sql"
 	"embed"
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/billdaws/bookmanager/internal/events"
 	"github.com/billdaws/bookmanager/internal/scanner"
 	"github.com/billdaws/bookmanager/internal/storage/db"
-	gosql "database/sql"
 )
 
 //go:embed templates
@@ -21,7 +23,7 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 // Register wires up all routes on mux.
-func Register(mux *http.ServeMux, database *gosql.DB) error {
+func Register(mux *http.ServeMux, database *gosql.DB, bridge *events.EventBridge) error {
 	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return fmt.Errorf("parse templates: %w", err)
@@ -34,8 +36,9 @@ func Register(mux *http.ServeMux, database *gosql.DB) error {
 
 	mux.HandleFunc("GET /", handleIndex(database, tmpl))
 	mux.HandleFunc("GET /library/new", handleLibraryNew(tmpl))
-	mux.HandleFunc("POST /library", handleCreateLibrary(database, tmpl))
+	mux.HandleFunc("POST /library", handleCreateLibrary(database, tmpl, bridge))
 	mux.HandleFunc("GET /library/{id}", handleLibrary(database, tmpl))
+	mux.HandleFunc("GET /library/{id}/events", handleLibraryEvents(database, bridge, tmpl))
 	mux.HandleFunc("GET /library/{id}/delete", handleLibraryDeleteConfirm(database, tmpl))
 	mux.HandleFunc("POST /library/{id}/delete", handleLibraryDelete(database, tmpl))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticSub)))
@@ -79,7 +82,7 @@ func handleLibraryNew(tmpl *template.Template) http.HandlerFunc {
 	}
 }
 
-func handleCreateLibrary(database *gosql.DB, tmpl *template.Template) http.HandlerFunc {
+func handleCreateLibrary(database *gosql.DB, tmpl *template.Template, bridge *events.EventBridge) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -121,6 +124,7 @@ func handleCreateLibrary(database *gosql.DB, tmpl *template.Template) http.Handl
 			return
 		}
 
+		bridge.Publish(events.TopicLibraryCreated, &db.Library{ID: id, Name: name, Directory: dir})
 		http.Redirect(w, r, "/library/"+id, http.StatusSeeOther)
 	}
 }
@@ -179,6 +183,68 @@ func handleLibraryDelete(database *gosql.DB, tmpl *template.Template) http.Handl
 		}
 
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
+}
+
+func handleLibraryEvents(database *gosql.DB, bridge *events.EventBridge, tmpl *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		lib, err := db.GetLibraryByID(database, id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		log.Printf("SSE connect: library %s (%s)", lib.Name, lib.ID)
+		defer log.Printf("SSE disconnect: library %s (%s)", lib.Name, lib.ID)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		ch := make(chan string, 1)
+		subName := fmt.Sprintf("sse-%p", ch)
+
+		unsub := bridge.Subscribe(events.TopicLibraryBooksChanged(id), subName, func(e events.Event) error {
+			books, err := db.ListBooks(database, id)
+			if err != nil {
+				return err
+			}
+			var buf strings.Builder
+			if err := tmpl.ExecuteTemplate(&buf, "book-list", books); err != nil {
+				return err
+			}
+			select {
+			case ch <- buf.String():
+			default:
+			}
+			return nil
+		})
+		defer unsub()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case html := <-ch:
+				writeSSEFrame(w, "books-updated", html)
+			}
+		}
+	}
+}
+
+func writeSSEFrame(w http.ResponseWriter, eventName, html string) {
+	for _, line := range strings.Split(strings.TrimRight(html, "\n"), "\n") {
+		fmt.Fprintf(w, "data: %s\n", line)
+	}
+	fmt.Fprintf(w, "event: %s\n\n", eventName)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 

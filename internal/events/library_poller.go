@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"database/sql"
+	"log"
 	"time"
 
 	storagedb "github.com/billdaws/bookmanager/internal/storage/db"
@@ -73,6 +74,7 @@ func (p *LibraryPoller) poll(ctx context.Context, lib *storagedb.Library) {
 			added, removed := diffBooks(lastBooks, books)
 			if len(added) > 0 || len(removed) > 0 {
 				lastBooks = books
+				log.Printf("library [%s]: +%d -%d books", lib.Name, len(added), len(removed))
 				p.bridge.Publish(TopicLibraryBooksChanged(lib.ID), LibraryBooksChangedPayload{
 					Added:   added,
 					Removed: removed,

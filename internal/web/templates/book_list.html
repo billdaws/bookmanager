@@ -1,0 +1,9 @@
+{{define "book-list"}}
+<ul id="book-list">
+{{range .}}
+    <li>{{.Filename}}</li>
+{{else}}
+    <li>No books found.</li>
+{{end}}
+</ul>
+{{end}}
