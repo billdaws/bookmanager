@@ -17,6 +17,14 @@ import (
 //go:embed migrations
 var migrationsFS embed.FS
 
+// dbtx is satisfied by both *sql.DB and *sql.Tx, allowing query helpers
+// to work within or outside a transaction.
+type dbtx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 type Library struct {
 	ID        string
 	Name      string
@@ -26,6 +34,23 @@ type Library struct {
 type Book struct {
 	ID       string
 	Filename string
+}
+
+// Store is the SQLite-backed data store. Callers that need to accept any
+// implementation should define their own interface at the point of use.
+type Store struct {
+	db *sql.DB
+}
+
+// NewStore returns a Store backed by db.
+func NewStore(db *sql.DB) *Store {
+	return &Store{db: db}
+}
+
+// syncer is the subset of Store methods needed by SyncLibrary.
+type syncer interface {
+	ListBooks(ctx context.Context, libraryID string) ([]Book, error)
+	UpdateBooks(ctx context.Context, libraryID string, filesToAdd []string, bookIDsToRemove []string) error
 }
 
 func OpenDB(path string) (*sql.DB, error) {
@@ -58,8 +83,8 @@ func OpenDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func ListLibraries(db *sql.DB) ([]Library, error) {
-	rows, err := db.Query("SELECT id, name, directory FROM library ORDER BY name")
+func (s *Store) ListLibraries(ctx context.Context) ([]Library, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, name, directory FROM library ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +101,8 @@ func ListLibraries(db *sql.DB) ([]Library, error) {
 	return libs, rows.Err()
 }
 
-func GetLibraryByID(db *sql.DB, id string) (*Library, error) {
-	row := db.QueryRow("SELECT id, name, directory FROM library WHERE id = ?", id)
+func (s *Store) GetLibraryByID(ctx context.Context, id string) (*Library, error) {
+	row := s.db.QueryRowContext(ctx, "SELECT id, name, directory FROM library WHERE id = ?", id)
 	var l Library
 	err := row.Scan(&l.ID, &l.Name, &l.Directory)
 	if err == sql.ErrNoRows {
@@ -86,15 +111,15 @@ func GetLibraryByID(db *sql.DB, id string) (*Library, error) {
 	return &l, err
 }
 
-func CreateLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) (string, error) {
-	tx, err := db.Begin()
+func (s *Store) CreateLibraryWithBooks(ctx context.Context, name, dir string, filenames []string) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
 
 	libraryID := uuid.New().String()
-	_, err = tx.Exec(
+	_, err = tx.ExecContext(ctx,
 		"INSERT INTO library (id, name, directory) VALUES (?, ?, ?)",
 		libraryID, name, dir,
 	)
@@ -102,41 +127,98 @@ func CreateLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) (s
 		return "", fmt.Errorf("insert library: %w", err)
 	}
 
-	if err := insertBooks(tx, libraryID, filenames); err != nil {
+	if err := insertBooks(ctx, tx, libraryID, filenames); err != nil {
 		return "", err
 	}
 
 	return libraryID, tx.Commit()
 }
 
-// insertBooks inserts all filenames in a single INSERT statement.
-// It is a no-op if filenames is empty.
-func insertBooks(tx *sql.Tx, libraryID string, filenames []string) error {
-	if len(filenames) == 0 {
+func (s *Store) UpdateBooks(ctx context.Context, libraryID string, filesToAdd []string, bookIDsToRemove []string) error {
+	if len(filesToAdd) == 0 && len(bookIDsToRemove) == 0 {
 		return nil
 	}
 
-	placeholders := make([]string, len(filenames))
-	args := make([]any, 0, len(filenames)*3)
-	for i, filename := range filenames {
-		placeholders[i] = "(?, ?, ?)"
-		args = append(args, uuid.New().String(), libraryID, filename)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := insertBooks(ctx, tx, libraryID, filesToAdd); err != nil {
+		return err
 	}
 
-	query := "INSERT INTO books (id, library_id, filename) VALUES " + strings.Join(placeholders, ", ")
-	if _, err := tx.Exec(query, args...); err != nil {
-		return fmt.Errorf("insert books: %w", err)
+	if len(bookIDsToRemove) > 0 {
+		placeholders := strings.Repeat("?,", len(bookIDsToRemove))
+		placeholders = placeholders[:len(placeholders)-1]
+		args := make([]any, len(bookIDsToRemove))
+		for i, id := range bookIDsToRemove {
+			args[i] = id
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM books WHERE id IN ("+placeholders+")", args...); err != nil {
+			return fmt.Errorf("delete books: %w", err)
+		}
 	}
-	return nil
+
+	return tx.Commit()
 }
 
-func SyncLibrary(db *sql.DB, lib *Library) error {
+func (s *Store) DeleteLibrary(ctx context.Context, id string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM library WHERE id = ?", id).Scan(&count); err != nil {
+		return false, err
+	}
+	if count == 0 {
+		return false, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM books WHERE library_id = ?", id); err != nil {
+		return false, fmt.Errorf("delete books: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM library WHERE id = ?", id); err != nil {
+		return false, fmt.Errorf("delete library: %w", err)
+	}
+
+	return true, tx.Commit()
+}
+
+func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, filename FROM books WHERE library_id = ? ORDER BY filename",
+		libraryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var books []Book
+	for rows.Next() {
+		var b Book
+		if err := rows.Scan(&b.ID, &b.Filename); err != nil {
+			return nil, err
+		}
+		books = append(books, b)
+	}
+	return books, rows.Err()
+}
+
+// SyncLibrary scans lib's directory and syncs the store to match.
+func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 	filenames, err := scanner.ScanDirectory(lib.Directory)
 	if err != nil {
 		return err
 	}
 
-	books, err := ListBooks(db, lib.ID)
+	books, err := s.ListBooks(ctx, lib.ID)
 	if err != nil {
 		return err
 	}
@@ -158,84 +240,33 @@ func SyncLibrary(db *sql.DB, lib *Library) error {
 		}
 	}
 
-	var toRemove []any
+	var toRemove []string
 	for filename, id := range inDB {
 		if !onDisk[filename] {
 			toRemove = append(toRemove, id)
 		}
 	}
 
-	if len(toAdd) == 0 && len(toRemove) == 0 {
+	return s.UpdateBooks(ctx, lib.ID, toAdd, toRemove)
+}
+
+// insertBooks inserts all filenames in a single INSERT statement.
+// It is a no-op if filenames is empty.
+func insertBooks(ctx context.Context, q dbtx, libraryID string, filenames []string) error {
+	if len(filenames) == 0 {
 		return nil
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err := insertBooks(tx, lib.ID, toAdd); err != nil {
-		return err
+	placeholders := make([]string, len(filenames))
+	args := make([]any, 0, len(filenames)*3)
+	for i, filename := range filenames {
+		placeholders[i] = "(?, ?, ?)"
+		args = append(args, uuid.New().String(), libraryID, filename)
 	}
 
-	if len(toRemove) > 0 {
-		placeholders := strings.Repeat("?,", len(toRemove))
-		placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
-		query := "DELETE FROM books WHERE id IN (" + placeholders + ")"
-		if _, err := tx.Exec(query, toRemove...); err != nil {
-			return fmt.Errorf("delete books: %w", err)
-		}
+	query := "INSERT INTO books (id, library_id, filename) VALUES " + strings.Join(placeholders, ", ")
+	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("insert books: %w", err)
 	}
-
-	return tx.Commit()
-}
-
-func DeleteLibrary(db *sql.DB, id string) (bool, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-
-	// Check existence before deleting.
-	var count int
-	if err := tx.QueryRow("SELECT COUNT(*) FROM library WHERE id = ?", id).Scan(&count); err != nil {
-		return false, err
-	}
-	if count == 0 {
-		return false, nil
-	}
-
-	// Delete books first to satisfy the foreign key constraint.
-	if _, err := tx.Exec("DELETE FROM books WHERE library_id = ?", id); err != nil {
-		return false, fmt.Errorf("delete books: %w", err)
-	}
-
-	if _, err := tx.Exec("DELETE FROM library WHERE id = ?", id); err != nil {
-		return false, fmt.Errorf("delete library: %w", err)
-	}
-
-	return true, tx.Commit()
-}
-
-func ListBooks(db *sql.DB, libraryID string) ([]Book, error) {
-	rows, err := db.Query(
-		"SELECT id, filename FROM books WHERE library_id = ? ORDER BY filename",
-		libraryID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var books []Book
-	for rows.Next() {
-		var b Book
-		if err := rows.Scan(&b.ID, &b.Filename); err != nil {
-			return nil, err
-		}
-		books = append(books, b)
-	}
-	return books, rows.Err()
+	return nil
 }
