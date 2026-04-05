@@ -1,4 +1,4 @@
-package main
+package scanner
 
 import (
 	"os"
@@ -20,13 +20,13 @@ func TestScanDirectory(t *testing.T) {
 	touch("moby-dick.epub")
 	touch("dune.pdf")
 	touch("foundation.mobi")
-	touch("readme.txt")   // should be excluded
-	touch("cover.jpg")    // should be excluded
-	touch("notes.docx")   // should be excluded
+	touch("readme.txt")  // should be excluded
+	touch("cover.jpg")   // should be excluded
+	touch("notes.docx")  // should be excluded
 
-	got, err := scanDirectory(dir)
+	got, err := ScanDirectory(dir)
 	if err != nil {
-		t.Fatalf("scanDirectory: %v", err)
+		t.Fatalf("ScanDirectory: %v", err)
 	}
 
 	want := map[string]bool{
@@ -65,9 +65,9 @@ func TestScanDirectory_SkipsSubdirectories(t *testing.T) {
 	}
 	f.Close()
 
-	got, err := scanDirectory(dir)
+	got, err := ScanDirectory(dir)
 	if err != nil {
-		t.Fatalf("scanDirectory: %v", err)
+		t.Fatalf("ScanDirectory: %v", err)
 	}
 
 	if len(got) != 1 || got[0] != "top.epub" {
@@ -78,9 +78,9 @@ func TestScanDirectory_SkipsSubdirectories(t *testing.T) {
 func TestScanDirectory_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 
-	got, err := scanDirectory(dir)
+	got, err := ScanDirectory(dir)
 	if err != nil {
-		t.Fatalf("scanDirectory: %v", err)
+		t.Fatalf("ScanDirectory: %v", err)
 	}
 	if len(got) != 0 {
 		t.Errorf("expected empty result, got %v", got)

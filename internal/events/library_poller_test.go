@@ -1,15 +1,37 @@
-package main
+package events
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/billdaws/bookmanager/internal/storage/db"
 )
 
 // testPollInterval is short so tests complete in a few poll cycles (~40–60ms
 // in the happy path). The 2s timeout in each test is a failure guard only.
 const testPollInterval = 20 * time.Millisecond
+
+func setupTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	database, err := db.OpenDB(":memory:")
+	if err != nil {
+		t.Fatalf("setupTestDB: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	return database
+}
+
+func touch(t *testing.T, dir, name string) {
+	t.Helper()
+	f, err := os.Create(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+}
 
 func setupPoller(t *testing.T) (*LibraryPoller, *EventBridge) {
 	t.Helper()
@@ -27,14 +49,14 @@ func TestLibraryPoller_PublishesOnNewFile(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "existing.epub")
 
-	id, err := createLibraryWithBooks(poller.db, "My Lib", dir, []string{"existing.epub"})
+	id, err := db.CreateLibraryWithBooks(poller.db, "My Lib", dir, []string{"existing.epub"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	lib, _ := getLibraryByID(poller.db, id)
+	lib, _ := db.GetLibraryByID(poller.db, id)
 
 	received := make(chan LibraryBooksChangedPayload, 1)
-	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
+	bridge.Subscribe(TopicLibraryBooksChanged(id), "test", func(e Event) error {
 		received <- e.Payload.(LibraryBooksChangedPayload)
 		return nil
 	})
@@ -67,14 +89,14 @@ func TestLibraryPoller_PublishesOnRemovedFile(t *testing.T) {
 	touch(t, dir, "keep.epub")
 	touch(t, dir, "gone.epub")
 
-	id, err := createLibraryWithBooks(poller.db, "My Lib", dir, []string{"keep.epub", "gone.epub"})
+	id, err := db.CreateLibraryWithBooks(poller.db, "My Lib", dir, []string{"keep.epub", "gone.epub"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	lib, _ := getLibraryByID(poller.db, id)
+	lib, _ := db.GetLibraryByID(poller.db, id)
 
 	received := make(chan LibraryBooksChangedPayload, 1)
-	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
+	bridge.Subscribe(TopicLibraryBooksChanged(id), "test", func(e Event) error {
 		received <- e.Payload.(LibraryBooksChangedPayload)
 		return nil
 	})
@@ -109,14 +131,14 @@ func TestLibraryPoller_NoPublishWhenUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "book.epub")
 
-	id, err := createLibraryWithBooks(poller.db, "My Lib", dir, []string{"book.epub"})
+	id, err := db.CreateLibraryWithBooks(poller.db, "My Lib", dir, []string{"book.epub"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	lib, _ := getLibraryByID(poller.db, id)
+	lib, _ := db.GetLibraryByID(poller.db, id)
 
 	received := make(chan struct{}, 1)
-	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
+	bridge.Subscribe(TopicLibraryBooksChanged(id), "test", func(e Event) error {
 		received <- struct{}{}
 		return nil
 	})
@@ -143,14 +165,14 @@ func TestLibraryPoller_StartsOnLibraryCreated(t *testing.T) {
 	poller.Register(ctx)
 
 	dir := t.TempDir()
-	id, err := createLibraryWithBooks(poller.db, "My Lib", dir, nil)
+	id, err := db.CreateLibraryWithBooks(poller.db, "My Lib", dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lib, _ := getLibraryByID(poller.db, id)
+	lib, _ := db.GetLibraryByID(poller.db, id)
 
 	received := make(chan LibraryBooksChangedPayload, 1)
-	bridge.Subscribe(topicLibraryBooksChanged(id), "test", func(e Event) error {
+	bridge.Subscribe(TopicLibraryBooksChanged(id), "test", func(e Event) error {
 		received <- e.Payload.(LibraryBooksChangedPayload)
 		return nil
 	})
@@ -176,18 +198,18 @@ func TestLibraryPoller_ReportsErrorOnBadDirectory(t *testing.T) {
 
 	bridge := NewEventBridge(nil)
 	errCh := make(chan error, 1)
-	poller := NewLibraryPoller(setupTestDB(t), bridge, testPollInterval, func(lib *Library, err error) {
+	poller := NewLibraryPoller(setupTestDB(t), bridge, testPollInterval, func(lib *db.Library, err error) {
 		select {
 		case errCh <- err:
 		default:
 		}
 	})
 
-	id, err := createLibraryWithBooks(poller.db, "My Lib", "/no/such/path", nil)
+	id, err := db.CreateLibraryWithBooks(poller.db, "My Lib", "/no/such/path", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lib, _ := getLibraryByID(poller.db, id)
+	lib, _ := db.GetLibraryByID(poller.db, id)
 
 	poller.Start(t.Context(), lib)
 
@@ -201,7 +223,7 @@ func TestLibraryPoller_ReportsErrorOnBadDirectory(t *testing.T) {
 	}
 }
 
-func containsFilename(books []Book, name string) bool {
+func containsFilename(books []db.Book, name string) bool {
 	for _, b := range books {
 		if b.Filename == name {
 			return true
@@ -210,7 +232,7 @@ func containsFilename(books []Book, name string) bool {
 	return false
 }
 
-func filenames(books []Book) []string {
+func filenames(books []db.Book) []string {
 	names := make([]string, len(books))
 	for i, b := range books {
 		names[i] = b.Filename

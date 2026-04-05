@@ -1,16 +1,49 @@
-package main
+package web
 
 import (
-	"database/sql"
+	"embed"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/billdaws/bookmanager/internal/scanner"
+	"github.com/billdaws/bookmanager/internal/storage/db"
+	gosql "database/sql"
 )
 
+//go:embed templates
+var templateFS embed.FS
+
+//go:embed static
+var staticFS embed.FS
+
+// Register wires up all routes on mux.
+func Register(mux *http.ServeMux, database *gosql.DB) error {
+	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
+	if err != nil {
+		return fmt.Errorf("parse templates: %w", err)
+	}
+
+	staticSub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		return fmt.Errorf("static fs: %w", err)
+	}
+
+	mux.HandleFunc("GET /", handleIndex(database, tmpl))
+	mux.HandleFunc("GET /library/new", handleLibraryNew(tmpl))
+	mux.HandleFunc("POST /library", handleCreateLibrary(database, tmpl))
+	mux.HandleFunc("GET /library/{id}", handleLibrary(database, tmpl))
+	mux.HandleFunc("GET /library/{id}/delete", handleLibraryDeleteConfirm(database, tmpl))
+	mux.HandleFunc("POST /library/{id}/delete", handleLibraryDelete(database, tmpl))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticSub)))
+	return nil
+}
+
 type indexPageData struct {
-	Libraries []Library
+	Libraries []db.Library
 }
 
 type setupPageData struct {
@@ -20,14 +53,14 @@ type setupPageData struct {
 }
 
 type libraryPageData struct {
-	Library   *Library
-	Books     []Book
+	Library   *db.Library
+	Books     []db.Book
 	SyncError string
 }
 
-func handleIndex(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+func handleIndex(database *gosql.DB, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		libs, err := listLibraries(db)
+		libs, err := db.ListLibraries(database)
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
@@ -46,7 +79,7 @@ func handleLibraryNew(tmpl *template.Template) http.HandlerFunc {
 	}
 }
 
-func handleCreateLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+func handleCreateLibrary(database *gosql.DB, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -76,13 +109,13 @@ func handleCreateLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 			return
 		}
 
-		filenames, err := scanDirectory(dir)
+		filenames, err := scanner.ScanDirectory(dir)
 		if err != nil {
 			http.Error(w, "could not scan directory", http.StatusInternalServerError)
 			return
 		}
 
-		id, err := createLibraryWithBooks(db, name, dir, filenames)
+		id, err := db.CreateLibraryWithBooks(database, name, dir, filenames)
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
@@ -93,13 +126,13 @@ func handleCreateLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 }
 
 type confirmDeletePageData struct {
-	Library *Library
+	Library *db.Library
 	Error   string
 }
 
-func handleLibraryDeleteConfirm(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+func handleLibraryDeleteConfirm(database *gosql.DB, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		lib, err := getLibraryByID(db, r.PathValue("id"))
+		lib, err := db.GetLibraryByID(database, r.PathValue("id"))
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
@@ -112,11 +145,11 @@ func handleLibraryDeleteConfirm(db *sql.DB, tmpl *template.Template) http.Handle
 	}
 }
 
-func handleLibraryDelete(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+func handleLibraryDelete(database *gosql.DB, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
-		lib, err := getLibraryByID(db, id)
+		lib, err := db.GetLibraryByID(database, id)
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
@@ -140,7 +173,7 @@ func handleLibraryDelete(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 			return
 		}
 
-		if _, err := deleteLibrary(db, id); err != nil {
+		if _, err := db.DeleteLibrary(database, id); err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
@@ -149,11 +182,11 @@ func handleLibraryDelete(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 	}
 }
 
-func handleLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
+func handleLibrary(database *gosql.DB, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
-		lib, err := getLibraryByID(db, id)
+		lib, err := db.GetLibraryByID(database, id)
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
@@ -165,11 +198,11 @@ func handleLibrary(db *sql.DB, tmpl *template.Template) http.HandlerFunc {
 
 		data := libraryPageData{Library: lib}
 
-		if err := syncLibrary(db, lib); err != nil {
+		if err := db.SyncLibrary(database, lib); err != nil {
 			data.SyncError = fmt.Sprintf("Could not sync library: %v", err)
 		}
 
-		data.Books, err = listBooks(db, id)
+		data.Books, err = db.ListBooks(database, id)
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return

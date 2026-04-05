@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"strings"
 
+	"github.com/billdaws/bookmanager/internal/scanner"
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
@@ -27,7 +28,7 @@ type Book struct {
 	Filename string
 }
 
-func openDB(path string) (*sql.DB, error) {
+func OpenDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
@@ -57,7 +58,7 @@ func openDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func listLibraries(db *sql.DB) ([]Library, error) {
+func ListLibraries(db *sql.DB) ([]Library, error) {
 	rows, err := db.Query("SELECT id, name, directory FROM library ORDER BY name")
 	if err != nil {
 		return nil, err
@@ -75,7 +76,7 @@ func listLibraries(db *sql.DB) ([]Library, error) {
 	return libs, rows.Err()
 }
 
-func getLibraryByID(db *sql.DB, id string) (*Library, error) {
+func GetLibraryByID(db *sql.DB, id string) (*Library, error) {
 	row := db.QueryRow("SELECT id, name, directory FROM library WHERE id = ?", id)
 	var l Library
 	err := row.Scan(&l.ID, &l.Name, &l.Directory)
@@ -85,7 +86,7 @@ func getLibraryByID(db *sql.DB, id string) (*Library, error) {
 	return &l, err
 }
 
-func createLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) (string, error) {
+func CreateLibraryWithBooks(db *sql.DB, name, dir string, filenames []string) (string, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return "", err
@@ -129,13 +130,13 @@ func insertBooks(tx *sql.Tx, libraryID string, filenames []string) error {
 	return nil
 }
 
-func syncLibrary(db *sql.DB, lib *Library) error {
-	filenames, err := scanDirectory(lib.Directory)
+func SyncLibrary(db *sql.DB, lib *Library) error {
+	filenames, err := scanner.ScanDirectory(lib.Directory)
 	if err != nil {
 		return err
 	}
 
-	books, err := listBooks(db, lib.ID)
+	books, err := ListBooks(db, lib.ID)
 	if err != nil {
 		return err
 	}
@@ -190,7 +191,7 @@ func syncLibrary(db *sql.DB, lib *Library) error {
 	return tx.Commit()
 }
 
-func deleteLibrary(db *sql.DB, id string) (bool, error) {
+func DeleteLibrary(db *sql.DB, id string) (bool, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return false, err
@@ -218,7 +219,7 @@ func deleteLibrary(db *sql.DB, id string) (bool, error) {
 	return true, tx.Commit()
 }
 
-func listBooks(db *sql.DB, libraryID string) ([]Book, error) {
+func ListBooks(db *sql.DB, libraryID string) ([]Book, error) {
 	rows, err := db.Query(
 		"SELECT id, filename FROM books WHERE library_id = ? ORDER BY filename",
 		libraryID,

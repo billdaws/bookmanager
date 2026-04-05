@@ -1,7 +1,7 @@
-package main
+package web
 
 import (
-	"database/sql"
+	gosql "database/sql"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -10,16 +10,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/billdaws/bookmanager/internal/storage/db"
 )
 
-func setupTestDB(t *testing.T) *sql.DB {
+func setupTestDB(t *testing.T) *gosql.DB {
 	t.Helper()
-	db, err := openDB(":memory:")
+	database, err := db.OpenDB(":memory:")
 	if err != nil {
 		t.Fatalf("setupTestDB: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	t.Cleanup(func() { database.Close() })
+	return database
 }
 
 func setupTestTemplates(t *testing.T) *template.Template {
@@ -31,14 +33,23 @@ func setupTestTemplates(t *testing.T) *template.Template {
 	return tmpl
 }
 
+func touch(t *testing.T, dir, name string) {
+	t.Helper()
+	f, err := os.Create(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+}
+
 // TestGetIndex_NoLibraries checks that the homepage lists no libraries when none exist.
 func TestGetIndex_NoLibraries(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
-	handleIndex(db, tmpl)(w, req)
+	handleIndex(database, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
@@ -52,19 +63,19 @@ func TestGetIndex_NoLibraries(t *testing.T) {
 
 // TestGetIndex_WithLibraries checks that all libraries appear on the homepage.
 func TestGetIndex_WithLibraries(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
-	if _, err := createLibraryWithBooks(db, "Sci-Fi", "/books/scifi", nil); err != nil {
+	if _, err := db.CreateLibraryWithBooks(database, "Sci-Fi", "/books/scifi", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := createLibraryWithBooks(db, "History", "/books/history", nil); err != nil {
+	if _, err := db.CreateLibraryWithBooks(database, "History", "/books/history", nil); err != nil {
 		t.Fatal(err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
-	handleIndex(db, tmpl)(w, req)
+	handleIndex(database, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
@@ -95,7 +106,7 @@ func TestGetLibraryNew(t *testing.T) {
 
 // TestPostLibrary_Valid checks that a valid submission creates a library and redirects.
 func TestPostLibrary_Valid(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	dir := t.TempDir()
@@ -106,7 +117,7 @@ func TestPostLibrary_Valid(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(db, tmpl)(w, req)
+	handleCreateLibrary(database, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusSeeOther {
@@ -117,14 +128,14 @@ func TestPostLibrary_Valid(t *testing.T) {
 		t.Errorf("Location = %q, want /library/{id}", loc)
 	}
 
-	libs, err := listLibraries(db)
+	libs, err := db.ListLibraries(database)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(libs) != 1 {
 		t.Errorf("expected 1 library, got %d", len(libs))
 	}
-	books, err := listBooks(db, libs[0].ID)
+	books, err := db.ListBooks(database, libs[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,14 +146,14 @@ func TestPostLibrary_Valid(t *testing.T) {
 
 // TestPostLibrary_MissingName checks that an empty name returns 422.
 func TestPostLibrary_MissingName(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	form := url.Values{"name": {""}, "directory": {t.TempDir()}}
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(db, tmpl)(w, req)
+	handleCreateLibrary(database, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -154,14 +165,14 @@ func TestPostLibrary_MissingName(t *testing.T) {
 
 // TestPostLibrary_BadDirectory checks that a non-existent path returns 422.
 func TestPostLibrary_BadDirectory(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	form := url.Values{"name": {"Lib"}, "directory": {"/does/not/exist"}}
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(db, tmpl)(w, req)
+	handleCreateLibrary(database, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -170,7 +181,7 @@ func TestPostLibrary_BadDirectory(t *testing.T) {
 
 // TestPostLibrary_FileNotDir checks that a path pointing to a file returns 422.
 func TestPostLibrary_FileNotDir(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	dir := t.TempDir()
@@ -182,7 +193,7 @@ func TestPostLibrary_FileNotDir(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(db, tmpl)(w, req)
+	handleCreateLibrary(database, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -191,14 +202,14 @@ func TestPostLibrary_FileNotDir(t *testing.T) {
 
 // TestGetLibrary checks that a library's book list is rendered correctly.
 func TestGetLibrary(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	dir := t.TempDir()
 	touch(t, dir, "a.epub")
 	touch(t, dir, "b.pdf")
 
-	id, err := createLibraryWithBooks(db, "My Lib", dir, []string{"a.epub", "b.pdf"})
+	id, err := db.CreateLibraryWithBooks(database, "My Lib", dir, []string{"a.epub", "b.pdf"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +217,7 @@ func TestGetLibrary(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/library/"+id, nil)
 	req.SetPathValue("id", id)
 	w := httptest.NewRecorder()
-	handleLibrary(db, tmpl)(w, req)
+	handleLibrary(database, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
@@ -220,13 +231,13 @@ func TestGetLibrary(t *testing.T) {
 
 // TestGetLibrary_SyncsNewFiles checks that files added to disk appear when the library is viewed.
 func TestGetLibrary_SyncsNewFiles(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	dir := t.TempDir()
 	touch(t, dir, "existing.epub")
 
-	id, err := createLibraryWithBooks(db, "My Lib", dir, []string{"existing.epub"})
+	id, err := db.CreateLibraryWithBooks(database, "My Lib", dir, []string{"existing.epub"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +248,7 @@ func TestGetLibrary_SyncsNewFiles(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/library/"+id, nil)
 	req.SetPathValue("id", id)
 	w := httptest.NewRecorder()
-	handleLibrary(db, tmpl)(w, req)
+	handleLibrary(database, tmpl)(w, req)
 
 	if !strings.Contains(w.Body.String(), "new.epub") {
 		t.Error("expected new.epub to appear after sync")
@@ -246,14 +257,14 @@ func TestGetLibrary_SyncsNewFiles(t *testing.T) {
 
 // TestGetLibrary_SyncsRemovedFiles checks that files deleted from disk disappear when the library is viewed.
 func TestGetLibrary_SyncsRemovedFiles(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	dir := t.TempDir()
 	touch(t, dir, "keep.epub")
 	touch(t, dir, "gone.epub")
 
-	id, err := createLibraryWithBooks(db, "My Lib", dir, []string{"keep.epub", "gone.epub"})
+	id, err := db.CreateLibraryWithBooks(database, "My Lib", dir, []string{"keep.epub", "gone.epub"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +277,7 @@ func TestGetLibrary_SyncsRemovedFiles(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/library/"+id, nil)
 	req.SetPathValue("id", id)
 	w := httptest.NewRecorder()
-	handleLibrary(db, tmpl)(w, req)
+	handleLibrary(database, tmpl)(w, req)
 
 	body := w.Body.String()
 	if strings.Contains(body, "gone.epub") {
@@ -279,10 +290,10 @@ func TestGetLibrary_SyncsRemovedFiles(t *testing.T) {
 
 // TestGetLibrary_SyncError checks that a missing directory shows existing books with a warning.
 func TestGetLibrary_SyncError(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
-	id, err := createLibraryWithBooks(db, "My Lib", "/no/such/path", []string{"a.epub"})
+	id, err := db.CreateLibraryWithBooks(database, "My Lib", "/no/such/path", []string{"a.epub"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +301,7 @@ func TestGetLibrary_SyncError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/library/"+id, nil)
 	req.SetPathValue("id", id)
 	w := httptest.NewRecorder()
-	handleLibrary(db, tmpl)(w, req)
+	handleLibrary(database, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
@@ -307,13 +318,13 @@ func TestGetLibrary_SyncError(t *testing.T) {
 
 // TestGetLibrary_NotFound checks that an unknown ID returns 404.
 func TestGetLibrary_NotFound(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/library/nonexistent", nil)
 	req.SetPathValue("id", "nonexistent")
 	w := httptest.NewRecorder()
-	handleLibrary(db, tmpl)(w, req)
+	handleLibrary(database, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Result().StatusCode)
@@ -322,10 +333,10 @@ func TestGetLibrary_NotFound(t *testing.T) {
 
 // TestGetLibraryDeleteConfirm checks that the confirmation page renders with the library name.
 func TestGetLibraryDeleteConfirm(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
-	id, err := createLibraryWithBooks(db, "Doomed Library", t.TempDir(), nil)
+	id, err := db.CreateLibraryWithBooks(database, "Doomed Library", t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +344,7 @@ func TestGetLibraryDeleteConfirm(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/library/"+id+"/delete", nil)
 	req.SetPathValue("id", id)
 	w := httptest.NewRecorder()
-	handleLibraryDeleteConfirm(db, tmpl)(w, req)
+	handleLibraryDeleteConfirm(database, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
@@ -346,13 +357,13 @@ func TestGetLibraryDeleteConfirm(t *testing.T) {
 
 // TestGetLibraryDeleteConfirm_NotFound checks that an unknown ID returns 404.
 func TestGetLibraryDeleteConfirm_NotFound(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/library/nonexistent/delete", nil)
 	req.SetPathValue("id", "nonexistent")
 	w := httptest.NewRecorder()
-	handleLibraryDeleteConfirm(db, tmpl)(w, req)
+	handleLibraryDeleteConfirm(database, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Result().StatusCode)
@@ -361,10 +372,10 @@ func TestGetLibraryDeleteConfirm_NotFound(t *testing.T) {
 
 // TestPostLibraryDelete_CorrectName checks that typing the correct name deletes the library.
 func TestPostLibraryDelete_CorrectName(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
-	id, err := createLibraryWithBooks(db, "My Library", t.TempDir(), []string{"a.epub"})
+	id, err := db.CreateLibraryWithBooks(database, "My Library", t.TempDir(), []string{"a.epub"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +385,7 @@ func TestPostLibraryDelete_CorrectName(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetPathValue("id", id)
 	w := httptest.NewRecorder()
-	handleLibraryDelete(db, tmpl)(w, req)
+	handleLibraryDelete(database, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusSeeOther {
@@ -384,14 +395,14 @@ func TestPostLibraryDelete_CorrectName(t *testing.T) {
 		t.Errorf("Location = %q, want /", res.Header.Get("Location"))
 	}
 
-	libs, err := listLibraries(db)
+	libs, err := db.ListLibraries(database)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(libs) != 0 {
 		t.Errorf("expected library to be deleted, got %d", len(libs))
 	}
-	books, err := listBooks(db, id)
+	books, err := db.ListBooks(database, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,10 +413,10 @@ func TestPostLibraryDelete_CorrectName(t *testing.T) {
 
 // TestPostLibraryDelete_WrongName checks that a mismatched name returns 422.
 func TestPostLibraryDelete_WrongName(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
-	id, err := createLibraryWithBooks(db, "My Library", t.TempDir(), nil)
+	id, err := db.CreateLibraryWithBooks(database, "My Library", t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,14 +426,14 @@ func TestPostLibraryDelete_WrongName(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetPathValue("id", id)
 	w := httptest.NewRecorder()
-	handleLibraryDelete(db, tmpl)(w, req)
+	handleLibraryDelete(database, tmpl)(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", res.StatusCode)
 	}
 
-	libs, err := listLibraries(db)
+	libs, err := db.ListLibraries(database)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +444,7 @@ func TestPostLibraryDelete_WrongName(t *testing.T) {
 
 // TestPostLibraryDelete_NotFound checks that an unknown ID returns 404.
 func TestPostLibraryDelete_NotFound(t *testing.T) {
-	db := setupTestDB(t)
+	database := setupTestDB(t)
 	tmpl := setupTestTemplates(t)
 
 	form := url.Values{"name": {"anything"}}
@@ -441,18 +452,9 @@ func TestPostLibraryDelete_NotFound(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetPathValue("id", "nonexistent")
 	w := httptest.NewRecorder()
-	handleLibraryDelete(db, tmpl)(w, req)
+	handleLibraryDelete(database, tmpl)(w, req)
 
 	if w.Result().StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Result().StatusCode)
 	}
-}
-
-func touch(t *testing.T, dir, name string) {
-	t.Helper()
-	f, err := os.Create(filepath.Join(dir, name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
 }

@@ -1,4 +1,4 @@
-package main
+package scanner
 
 import (
 	"os"
@@ -16,9 +16,9 @@ var bookExtensions = map[string]bool{
 	".cbr":  true,
 }
 
-// scanDirectory returns the base filenames of book files in dir.
+// ScanDirectory returns the base filenames of book files in dir.
 // It is non-recursive — subdirectories are skipped.
-func scanDirectory(dir string) ([]string, error) {
+func ScanDirectory(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
