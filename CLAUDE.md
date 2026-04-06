@@ -7,7 +7,7 @@
 
 ## Templating
 
-- Templates use [templ](https://templ.guide/) — `.templ` files in `internal/web/` generate `*_templ.go` files via `templ generate ./internal/web/`.
+- Templates use [templ](https://templ.guide/) — `.templ` files in `internal/web/` generate `*_templ.go` files via `nix run .#generate-templ` or `templ generate ./internal/web/` (inside `nix develop`).
 - Page components (`IndexPage`, `LibraryPage`, etc.) are called directly from handlers: `ComponentName(data).Render(r.Context(), w)`.
 - The `layout` component (in `layout.templ`) wraps every full page and provides the HTML shell, stylesheet link, and body. Each page passes its own `<title>` string.
 - For JavaScript that needs Go values (e.g. the SSE URL), use a `script` template rather than inline string concatenation.

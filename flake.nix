@@ -95,6 +95,14 @@
           '');
         };
 
+        apps.generate-templ = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "generate-templ" ''
+            set -euo pipefail
+            ${pkgs.templ}/bin/templ generate ./internal/web/
+          '');
+        };
+
         apps.upgrade-htmx = {
           type = "app";
           program = toString (pkgs.writeShellScript "upgrade-htmx" ''
