@@ -11,7 +11,7 @@ import (
 // libraryStore is the subset of db.Store methods used by LibraryPoller.
 type libraryStore interface {
 	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
-	UpdateBooks(ctx context.Context, libraryID string, filesToAdd []string, bookIDsToRemove []string) error
+	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
 }
 
 // LibraryPoller watches a library's directory by polling on a fixed interval.

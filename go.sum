@@ -2,6 +2,10 @@ github.com/Oudwins/tailwind-merge-go v0.2.0 h1:rtVHgYmLwwae4P+K6//ceRuUdyz3Bny6f
 github.com/Oudwins/tailwind-merge-go v0.2.0/go.mod h1:kkZodgOPvZQ8f7SIrlWkG/w1g9JTbtnptnePIh3V72U=
 github.com/a-h/templ v0.3.1001 h1:yHDTgexACdJttyiyamcTHXr2QkIeVF1MukLy44EAhMY=
 github.com/a-h/templ v0.3.1001/go.mod h1:oCZcnKRf5jjsGpf2yELzQfodLphd2mwecwG4Crk5HBo=
+github.com/billdaws/epub v0.0.0-20260406132651-545fbb5f0eba h1:gFwIyXo3pWWGnP2fQ+wenGFrehkixAl1EE75I5SdSoU=
+github.com/billdaws/epub v0.0.0-20260406132651-545fbb5f0eba/go.mod h1:BKwAIpEb8/7CTnhYdqDDCIRw8YVCOGH93hiCL8JS20Q=
+github.com/billdaws/epub v1.0.0 h1:C1ZAcuyRkfuohmnHTHgYfDEzodt9rNmjPnEmiA8KdsM=
+github.com/billdaws/epub v1.0.0/go.mod h1:BKwAIpEb8/7CTnhYdqDDCIRw8YVCOGH93hiCL8JS20Q=
 github.com/codingconcepts/env v0.0.0-20240618133406-5b0845441187 h1:LBucq2bT6eqahlLuaDZq0IaDvaI2kWAyInMv8JEzBQU=
 github.com/codingconcepts/env v0.0.0-20240618133406-5b0845441187/go.mod h1:gUW2+3vZSTAObqEHGT24ieIdRVYtbkm3/7mAP7qOnRc=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=

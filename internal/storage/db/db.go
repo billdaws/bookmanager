@@ -6,9 +6,11 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"strings"
 
 	"github.com/billdaws/bookmanager/internal/scanner"
+	"github.com/billdaws/epub"
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
@@ -32,8 +34,11 @@ type Library struct {
 }
 
 type Book struct {
-	ID       string
-	Filename string
+	ID              string
+	Filename        string
+	Title           string
+	Authors         string // semicolon-delimited, in document order
+	PublicationDate string // "YYYY-MM-DD" or "YYYY"; empty if absent
 }
 
 // Store is the SQLite-backed data store. Callers that need to accept any
@@ -50,7 +55,7 @@ func NewStore(db *sql.DB) *Store {
 // syncer is the subset of Store methods needed by SyncLibrary.
 type syncer interface {
 	ListBooks(ctx context.Context, libraryID string) ([]Book, error)
-	UpdateBooks(ctx context.Context, libraryID string, filesToAdd []string, bookIDsToRemove []string) error
+	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
 }
 
 func OpenDB(path string) (*sql.DB, error) {
@@ -127,14 +132,14 @@ func (s *Store) CreateLibraryWithBooks(ctx context.Context, name, dir string, fi
 		return "", fmt.Errorf("insert library: %w", err)
 	}
 
-	if err := insertBooks(ctx, tx, libraryID, filenames); err != nil {
+	if err := insertBooks(ctx, tx, libraryID, dir, filenames); err != nil {
 		return "", err
 	}
 
 	return libraryID, tx.Commit()
 }
 
-func (s *Store) UpdateBooks(ctx context.Context, libraryID string, filesToAdd []string, bookIDsToRemove []string) error {
+func (s *Store) UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error {
 	if len(filesToAdd) == 0 && len(bookIDsToRemove) == 0 {
 		return nil
 	}
@@ -145,7 +150,7 @@ func (s *Store) UpdateBooks(ctx context.Context, libraryID string, filesToAdd []
 	}
 	defer tx.Rollback()
 
-	if err := insertBooks(ctx, tx, libraryID, filesToAdd); err != nil {
+	if err := insertBooks(ctx, tx, libraryID, dir, filesToAdd); err != nil {
 		return err
 	}
 
@@ -192,7 +197,8 @@ func (s *Store) DeleteLibrary(ctx context.Context, id string) (bool, error) {
 
 func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, filename FROM books WHERE library_id = ? ORDER BY filename",
+		`SELECT id, filename, COALESCE(title, ''), COALESCE(authors, ''), COALESCE(publication_date, '')
+		 FROM books WHERE library_id = ? ORDER BY filename`,
 		libraryID,
 	)
 	if err != nil {
@@ -203,7 +209,7 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 	var books []Book
 	for rows.Next() {
 		var b Book
-		if err := rows.Scan(&b.ID, &b.Filename); err != nil {
+		if err := rows.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate); err != nil {
 			return nil, err
 		}
 		books = append(books, b)
@@ -247,26 +253,48 @@ func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 		}
 	}
 
-	return s.UpdateBooks(ctx, lib.ID, toAdd, toRemove)
+	return s.UpdateBooks(ctx, lib.ID, lib.Directory, toAdd, toRemove)
 }
 
-// insertBooks inserts all filenames in a single INSERT statement.
-// It is a no-op if filenames is empty.
-func insertBooks(ctx context.Context, q dbtx, libraryID string, filenames []string) error {
+// insertBooks inserts all filenames in a single INSERT statement, extracting
+// epub metadata for .epub files. It is a no-op if filenames is empty.
+func insertBooks(ctx context.Context, q dbtx, libraryID, dir string, filenames []string) error {
 	if len(filenames) == 0 {
 		return nil
 	}
 
 	placeholders := make([]string, len(filenames))
-	args := make([]any, 0, len(filenames)*3)
+	args := make([]any, 0, len(filenames)*6)
 	for i, filename := range filenames {
-		placeholders[i] = "(?, ?, ?)"
-		args = append(args, uuid.New().String(), libraryID, filename)
+		placeholders[i] = "(?, ?, ?, ?, ?, ?)"
+		title, authors, pubDate := extractEpubMetadata(filepath.Join(dir, filename))
+		args = append(args, uuid.New().String(), libraryID, filename, nilIfEmpty(title), nilIfEmpty(authors), nilIfEmpty(pubDate))
 	}
 
-	query := "INSERT INTO books (id, library_id, filename) VALUES " + strings.Join(placeholders, ", ")
+	query := "INSERT INTO books (id, library_id, filename, title, authors, publication_date) VALUES " + strings.Join(placeholders, ", ")
 	if _, err := q.ExecContext(ctx, query, args...); err != nil {
 		return fmt.Errorf("insert books: %w", err)
 	}
 	return nil
+}
+
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func extractEpubMetadata(path string) (title, authors, publicationDate string) {
+	if strings.ToLower(filepath.Ext(path)) != ".epub" {
+		return
+	}
+	pkg, err := epub.OpenPackage(path)
+	if err != nil {
+		return
+	}
+	title = pkg.Metadata.Title
+	authors = strings.Join(pkg.Metadata.Authors, "; ")
+	publicationDate = pkg.Metadata.PublicationDate
+	return
 }
