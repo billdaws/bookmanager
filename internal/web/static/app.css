@@ -1,0 +1,10 @@
+.danger {
+    --pico-background-color: #c0392b;
+    --pico-border-color: #c0392b;
+    --pico-color: #fff;
+}
+
+.danger:hover {
+    --pico-background-color: #a93226;
+    --pico-border-color: #a93226;
+}

@@ -2,7 +2,8 @@
 
 ## UI conventions
 
-- For actions (adding, deleting, submitting), use `<button>` elements, not `<a>` links.
+- For actions that mutate state (POST/DELETE), use `<button>` elements, not `<a>` links.
+- For navigation (GET), use `<a>` links, not forms with buttons.
 
 ## Styling
 
