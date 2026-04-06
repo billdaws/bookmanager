@@ -4,6 +4,11 @@
 
 - For actions (adding, deleting, submitting), use `<button>` elements, not `<a>` links.
 
+## Styling
+
+- CSS framework: [Pico CSS](https://picocss.com/) v2, served as a static file at `internal/web/static/pico.min.css`. No build step.
+- Every full-page template includes `{{template "head" .}}` inside `<head>`, which provides the charset, viewport, and Pico stylesheet. Each page defines its own `<title>` separately.
+
 ## Code comments
 
 - Comments are for human readers, not agents. Don't write things like "Use X instead of Y" or "Prefer Z" — put that guidance in CLAUDE.md instead.
