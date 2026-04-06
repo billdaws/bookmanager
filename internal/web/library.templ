@@ -1,0 +1,55 @@
+package web
+
+import (
+	"fmt"
+	"github.com/templui/templui/components/button"
+)
+
+script connectEventSource(libraryID string) {
+	const source = new EventSource("/library/" + libraryID + "/events");
+	source.addEventListener("books-updated", function(e) {
+		document.getElementById("book-list").outerHTML = e.data;
+	});
+	window.addEventListener("beforeunload", () => source.close());
+}
+
+templ LibraryPage(data libraryPageData) {
+	@layout("Bookmanager — " + data.Library.Name) {
+		<main class="container mx-auto p-8 max-w-2xl">
+			<a href="/" class="text-sm text-muted-foreground hover:underline mb-4 inline-block">← All libraries</a>
+			<div class="flex items-center gap-2 mb-2">
+				<h1 class="text-2xl font-bold">{ data.Library.Name }</h1>
+				<details class="relative ml-auto">
+					<summary class="list-none cursor-pointer p-2 rounded hover:bg-accent">⚙</summary>
+					<ul class="absolute right-0 mt-1 bg-background border rounded-lg shadow-lg p-1 z-10 min-w-[150px]">
+						<li>
+							<a
+								href={ templ.SafeURL("/library/" + data.Library.ID + "/delete") }
+								class="flex w-full px-3 py-2 text-sm text-destructive hover:bg-accent rounded"
+							>
+								Delete library
+							</a>
+						</li>
+					</ul>
+				</details>
+			</div>
+			if data.SyncError != "" {
+				<p class="text-destructive text-sm mb-4">sync error: { data.SyncError }</p>
+			}
+			<p class="text-sm text-muted-foreground mb-4">
+				{ fmt.Sprintf("%d", len(data.Books)) } book(s) in <code>{ data.Library.Directory }</code>
+			</p>
+			<div class="border rounded-lg">
+				<div class="flex justify-end p-2 border-b">
+					<a href={ templ.SafeURL("/library/" + data.Library.ID) }>
+						@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm}) {
+							Refresh
+						}
+					</a>
+				</div>
+				@BookList(data.Books)
+			</div>
+		</main>
+		@connectEventSource(data.Library.ID)
+	}
+}

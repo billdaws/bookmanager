@@ -1,0 +1,66 @@
+package web
+
+import (
+	"github.com/templui/templui/components/alert"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/input"
+	"github.com/templui/templui/components/label"
+)
+
+templ SetupPage(data setupPageData) {
+	@layout("Bookmanager — Setup") {
+		<main class="container mx-auto p-8 max-w-md">
+			<h1 class="text-2xl font-bold mb-2">Welcome to Bookmanager</h1>
+			<p class="text-muted-foreground mb-6">No library configured yet. Enter details below to get started.</p>
+			if data.Error != "" {
+				<div class="mb-4">
+					@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+						@alert.Description() {
+							{ data.Error }
+						}
+					}
+				</div>
+			}
+			<form
+				action="/library"
+				method="post"
+				hx-post="/library"
+				hx-target="body"
+				hx-swap="outerHTML"
+				class="space-y-4"
+			>
+				<div class="space-y-1">
+					@label.Label(label.Props{For: "name"}) {
+						Library name
+					}
+					@input.Input(input.Props{
+						ID:          "name",
+						Name:        "name",
+						Type:        input.TypeText,
+						Required:    true,
+						Value:       data.Name,
+						Placeholder: "My Library",
+					})
+				</div>
+				<div class="space-y-1">
+					@label.Label(label.Props{For: "directory"}) {
+						Directory path
+					}
+					@input.Input(input.Props{
+						ID:          "directory",
+						Name:        "directory",
+						Type:        input.TypeText,
+						Required:    true,
+						Value:       data.Directory,
+						Placeholder: "/home/user/books",
+					})
+				</div>
+				@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+					Set up library
+				}
+			</form>
+			@label.Script()
+		</main>
+		<script src="/static/htmx.min.js"></script>
+	}
+}

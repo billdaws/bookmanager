@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -45,28 +44,28 @@ type confirmDeletePageData struct {
 	Error   string
 }
 
-func handleIndex(store libraryStore, tmpl *template.Template) http.HandlerFunc {
+func handleIndex(store libraryStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		libs, err := store.ListLibraries(r.Context())
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
-		if err := tmpl.ExecuteTemplate(w, "index", indexPageData{Libraries: libs}); err != nil {
-			http.Error(w, "template error", http.StatusInternalServerError)
+		if err := IndexPage(indexPageData{Libraries: libs}).Render(r.Context(), w); err != nil {
+			http.Error(w, "render error", http.StatusInternalServerError)
 		}
 	}
 }
 
-func handleLibraryNew(tmpl *template.Template) http.HandlerFunc {
+func handleLibraryNew() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := tmpl.ExecuteTemplate(w, "setup", setupPageData{}); err != nil {
-			http.Error(w, "template error", http.StatusInternalServerError)
+		if err := SetupPage(setupPageData{}).Render(r.Context(), w); err != nil {
+			http.Error(w, "render error", http.StatusInternalServerError)
 		}
 	}
 }
 
-func handleCreateLibrary(store libraryStore, tmpl *template.Template, bridge *events.EventBridge) http.HandlerFunc {
+func handleCreateLibrary(store libraryStore, bridge *events.EventBridge) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -78,7 +77,7 @@ func handleCreateLibrary(store libraryStore, tmpl *template.Template, bridge *ev
 
 		renderError := func(msg string) {
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			tmpl.ExecuteTemplate(w, "setup", setupPageData{Error: msg, Name: name, Directory: dir})
+			SetupPage(setupPageData{Error: msg, Name: name, Directory: dir}).Render(r.Context(), w)
 		}
 
 		if name == "" {
@@ -113,7 +112,7 @@ func handleCreateLibrary(store libraryStore, tmpl *template.Template, bridge *ev
 	}
 }
 
-func handleLibraryDeleteConfirm(store libraryStore, tmpl *template.Template) http.HandlerFunc {
+func handleLibraryDeleteConfirm(store libraryStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lib, err := store.GetLibraryByID(r.Context(), r.PathValue("id"))
 		if err != nil {
@@ -124,11 +123,11 @@ func handleLibraryDeleteConfirm(store libraryStore, tmpl *template.Template) htt
 			http.NotFound(w, r)
 			return
 		}
-		tmpl.ExecuteTemplate(w, "confirm-delete", confirmDeletePageData{Library: lib})
+		ConfirmDeletePage(confirmDeletePageData{Library: lib}).Render(r.Context(), w)
 	}
 }
 
-func handleLibraryDelete(store libraryStore, tmpl *template.Template) http.HandlerFunc {
+func handleLibraryDelete(store libraryStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
@@ -149,10 +148,10 @@ func handleLibraryDelete(store libraryStore, tmpl *template.Template) http.Handl
 
 		if r.FormValue("name") != lib.Name {
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			tmpl.ExecuteTemplate(w, "confirm-delete", confirmDeletePageData{
+			ConfirmDeletePage(confirmDeletePageData{
 				Library: lib,
 				Error:   "Name does not match. Please try again.",
-			})
+			}).Render(r.Context(), w)
 			return
 		}
 
@@ -165,7 +164,7 @@ func handleLibraryDelete(store libraryStore, tmpl *template.Template) http.Handl
 	}
 }
 
-func handleLibraryEvents(store libraryStore, bridge *events.EventBridge, tmpl *template.Template) http.HandlerFunc {
+func handleLibraryEvents(store libraryStore, bridge *events.EventBridge) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
@@ -196,7 +195,7 @@ func handleLibraryEvents(store libraryStore, bridge *events.EventBridge, tmpl *t
 				return err
 			}
 			var buf strings.Builder
-			if err := tmpl.ExecuteTemplate(&buf, "book-list", books); err != nil {
+			if err := BookList(books).Render(ctx, &buf); err != nil {
 				return err
 			}
 			select {
@@ -218,7 +217,7 @@ func handleLibraryEvents(store libraryStore, bridge *events.EventBridge, tmpl *t
 	}
 }
 
-func handleLibrary(store libraryStore, tmpl *template.Template) http.HandlerFunc {
+func handleLibrary(store libraryStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
@@ -244,8 +243,8 @@ func handleLibrary(store libraryStore, tmpl *template.Template) http.HandlerFunc
 			return
 		}
 
-		if err := tmpl.ExecuteTemplate(w, "library", data); err != nil {
-			http.Error(w, "template error", http.StatusInternalServerError)
+		if err := LibraryPage(data).Render(r.Context(), w); err != nil {
+			http.Error(w, "render error", http.StatusInternalServerError)
 		}
 	}
 }

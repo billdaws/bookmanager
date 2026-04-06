@@ -19,6 +19,8 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - run: go install github.com/a-h/templ/cmd/templ@latest
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"

@@ -3,6 +3,7 @@ version: 2
 before:
   hooks:
     - go mod tidy
+    - templ generate ./internal/web/
 
 builds:
   - id: bookmanager

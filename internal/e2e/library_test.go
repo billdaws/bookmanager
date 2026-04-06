@@ -21,9 +21,9 @@ func TestCreateLibrary(t *testing.T) {
 	page.MustNavigate(base + "/")
 	page.MustElementR("p", "No libraries yet")
 
-	// Click "Add library" → GET form navigates to /library/new.
+	// Click "Add library" → navigates to /library/new.
 	wait := page.MustWaitNavigation()
-	page.MustElement(`button[type="submit"]`).MustClick()
+	page.MustElement(`a[href="/library/new"]`).MustClick()
 	wait()
 
 	// Fill and submit the setup form. The form uses hx-post; after a 303
@@ -66,7 +66,7 @@ func TestDisplaysBooks(t *testing.T) {
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
-			page.MustElementR("li", e.Name())
+			page.MustElementR("td", e.Name())
 		}
 	}
 }
@@ -88,7 +88,7 @@ func TestPollerUpdatesBookList(t *testing.T) {
 	page.MustElement(`button[type="submit"]`).MustClick()
 	page.MustElement(`a[href="/"]`) // wait for library page
 
-	page.MustElementR("li", "No books found.")
+	page.MustElementR("td", "No books found.")
 
 	// Add a book — the poller picks it up and pushes an SSE update.
 	src, err := filepath.Abs("testdata/raw/yellow-wallpaper.epub")
@@ -99,13 +99,13 @@ func TestPollerUpdatesBookList(t *testing.T) {
 	if err := os.Symlink(src, dst); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
-	page.MustElementR("li", "yellow-wallpaper.epub")
+	page.MustElementR("td", "yellow-wallpaper.epub")
 
 	// Remove the book — the poller notices and pushes another update.
 	if err := os.Remove(dst); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	page.MustElementR("li", "No books found.")
+	page.MustElementR("td", "No books found.")
 }
 
 // TestDeleteLibrary creates a library via the UI and then deletes it through
@@ -124,9 +124,10 @@ func TestDeleteLibrary(t *testing.T) {
 	page.MustElement(`button[type="submit"]`).MustClick()
 	page.MustElement(`a[href="/"]`) // wait for library page
 
-	// Click "Delete library" → GET form navigates to the confirmation page.
+	// Open the settings dropdown, then click "Delete library" → navigates to the confirmation page.
+	page.MustElement(`details summary`).MustClick()
 	wait := page.MustWaitNavigation()
-	page.MustElement(`form[action$="/delete"] button[type="submit"]`).MustClick()
+	page.MustElement(`a[href$="/delete"]`).MustClick()
 	wait()
 
 	// Type the library name and confirm deletion.

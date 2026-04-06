@@ -84,6 +84,17 @@
           '');
         };
 
+        apps.build-css = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "build-css" ''
+            set -euo pipefail
+            ${pkgs.tailwindcss_4}/bin/tailwindcss \
+              -i internal/web/static/input.css \
+              -o internal/web/static/app.css \
+              --minify
+          '');
+        };
+
         apps.upgrade-htmx = {
           type = "app";
           program = toString (pkgs.writeShellScript "upgrade-htmx" ''
@@ -108,6 +119,10 @@
 
             # DB migration tool
             goose
+
+            # Templating and CSS
+            templ
+            tailwindcss_4
 
             # Handy during development
             air          # live reload

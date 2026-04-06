@@ -1,0 +1,30 @@
+package web
+
+import (
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
+	"github.com/templui/templui/components/table"
+)
+
+templ BookList(books []storage.Book) {
+	<div id="book-list">
+		@table.Table() {
+			@table.Body() {
+				if len(books) == 0 {
+					@table.Row() {
+						@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
+							No books found.
+						}
+					}
+				} else {
+					for _, book := range books {
+						@table.Row() {
+							@table.Cell() {
+								{ book.Filename }
+							}
+						}
+					}
+				}
+			}
+		}
+	</div>
+}

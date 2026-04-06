@@ -1,0 +1,55 @@
+package web
+
+import (
+	"github.com/templui/templui/components/alert"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/input"
+)
+
+templ ConfirmDeletePage(data confirmDeletePageData) {
+	@layout("Bookmanager — Delete " + data.Library.Name) {
+		<main class="container mx-auto p-8 max-w-md">
+			<a
+				href={ templ.SafeURL("/library/" + data.Library.ID) }
+				class="text-sm text-muted-foreground hover:underline mb-4 inline-block"
+			>
+				← Cancel
+			</a>
+			<h1 class="text-2xl font-bold mb-2">Delete "{ data.Library.Name }"?</h1>
+			<p class="text-muted-foreground mb-2">
+				This will remove the library and its book list. The files on disk will not be affected.
+			</p>
+			<p class="mb-4">
+				Type <strong>{ data.Library.Name }</strong> to confirm.
+			</p>
+			if data.Error != "" {
+				<div class="mb-4">
+					@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+						@alert.Description() {
+							{ data.Error }
+						}
+					}
+				</div>
+			}
+			<form
+				action={ templ.SafeURL("/library/" + data.Library.ID + "/delete") }
+				method="post"
+				class="space-y-4"
+			>
+				@input.Input(input.Props{
+					Name:        "name",
+					Type:        input.TypeText,
+					Placeholder: data.Library.Name,
+					Attributes:  templ.Attributes{"autofocus": ""},
+				})
+				@button.Button(button.Props{
+					Type:      button.TypeSubmit,
+					Variant:   button.VariantDestructive,
+					FullWidth: true,
+				}) {
+					Delete library
+				}
+			</form>
+		</main>
+	}
+}
