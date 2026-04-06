@@ -3,18 +3,29 @@ package web
 import (
 	"fmt"
 	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/input"
 )
 
 script connectEventSource(libraryID string) {
+	const filterEl = document.getElementById("author-filter");
 	const source = new EventSource("/library/" + libraryID + "/events");
 	source.addEventListener("books-updated", function(e) {
 		document.getElementById("book-list").outerHTML = e.data;
+		filterBooks(filterEl ? filterEl.value : "");
 	});
 	window.addEventListener("beforeunload", () => source.close());
 }
 
 templ LibraryPage(data libraryPageData) {
 	@layout("Bookmanager — " + data.Library.Name) {
+		<script>
+			function filterBooks(query) {
+				const q = query.toLowerCase();
+				document.querySelectorAll('#book-list tr[data-search]').forEach(function(row) {
+					row.style.display = (q === '' || row.dataset.search.toLowerCase().includes(q)) ? '' : 'none';
+				});
+			}
+		</script>
 		<main class="container mx-auto p-8 max-w-2xl">
 			<a href="/" class="text-sm text-muted-foreground hover:underline mb-4 inline-block">← All libraries</a>
 			<div class="flex items-center gap-2 mb-2">
@@ -40,7 +51,13 @@ templ LibraryPage(data libraryPageData) {
 				{ fmt.Sprintf("%d", len(data.Books)) } book(s) in <code>{ data.Library.Directory }</code>
 			</p>
 			<div class="border rounded-lg">
-				<div class="flex justify-end p-2 border-b">
+				<div class="flex items-center gap-2 p-2 border-b">
+					@input.Input(input.Props{
+						ID:          "author-filter",
+						Type:        input.TypeSearch,
+						Placeholder: "Filter by author...",
+						Attributes:  templ.Attributes{"oninput": "filterBooks(this.value)"},
+					})
 					<a href={ templ.SafeURL("/library/" + data.Library.ID) }>
 						@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm}) {
 							Refresh

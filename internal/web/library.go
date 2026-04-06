@@ -18,7 +18,7 @@ type libraryStore interface {
 	ListLibraries(ctx context.Context) ([]storage.Library, error)
 	GetLibraryByID(ctx context.Context, id string) (*storage.Library, error)
 	CreateLibraryWithBooks(ctx context.Context, name, dir string, filenames []string) (string, error)
-	UpdateBooks(ctx context.Context, libraryID string, filesToAdd []string, bookIDsToRemove []string) error
+	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
 	DeleteLibrary(ctx context.Context, id string) (bool, error)
 	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
 }
@@ -42,6 +42,23 @@ type libraryPageData struct {
 type confirmDeletePageData struct {
 	Library *storage.Library
 	Error   string
+}
+
+func bookDisplayLabel(b storage.Book) string {
+	if b.Title == "" || b.Authors == "" {
+		return b.Filename
+	}
+	if len(b.PublicationDate) >= 4 {
+		return b.Authors + " - " + b.Title + " (" + b.PublicationDate[:4] + ")"
+	}
+	return b.Authors + " - " + b.Title
+}
+
+func bookSearchText(b storage.Book) string {
+	if b.Authors != "" {
+		return b.Authors
+	}
+	return b.Filename
 }
 
 func handleIndex(store libraryStore) http.HandlerFunc {
