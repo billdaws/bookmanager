@@ -20,7 +20,6 @@ type libraryStore interface {
 	GetLibraryByID(ctx context.Context, id string) (*storage.Library, error)
 	CreateLibraryWithBooks(ctx context.Context, name, dir string, filenames []string) (string, error)
 	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
-	BackfillMetadata(ctx context.Context, libraryID, dir string) error
 	DeleteLibrary(ctx context.Context, id string) (bool, error)
 	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
 }

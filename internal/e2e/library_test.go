@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,10 +66,15 @@ func TestDisplaysBooks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read testdata/raw: %v", err)
 	}
+	var wantRows int
 	for _, e := range entries {
 		if !e.IsDir() {
-			page.MustElementR("td", e.Name())
+			wantRows++
 		}
+	}
+	rows := page.MustElements("#book-list tbody tr")
+	if got := len(rows); got != wantRows {
+		t.Errorf("got %d book rows, want %d", got, wantRows)
 	}
 }
 
@@ -100,7 +106,8 @@ func TestPollerUpdatesBookList(t *testing.T) {
 	if err := os.Symlink(src, dst); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
-	page.MustElementR("td", "yellow-wallpaper.epub")
+	// Wait for the SSE update to replace the empty state with the book entry.
+	page.MustWait(`() => !document.querySelector('#book-list').textContent.includes('No books found.')`)
 
 	// Remove the book — the poller notices and pushes another update.
 	if err := os.Remove(dst); err != nil {
@@ -125,24 +132,26 @@ func TestQueryFilter(t *testing.T) {
 	page.MustElement(`button[type="submit"]`).MustClick()
 	page.MustElement(`a[href="/"]`) // wait for library page
 
+	// Extract the library ID from the delete link, since the HTMX form swap
+	// does not update the browser URL bar.
+	deleteHref := page.MustElement(`a[href$="/delete"]`).MustAttribute("href")
+	if deleteHref == nil {
+		t.Fatal("delete link has no href")
+	}
+	// *deleteHref = "/library/{id}/delete" → strip suffix then take last segment
+	libID := libraryIDFromURL(strings.TrimSuffix(*deleteHref, "/delete"))
+
 	// Navigate with a filename: query — only yellow-wallpaper should appear.
-	wait := page.MustWaitNavigation()
-	page.MustNavigate(base + "/library/" + libraryIDFromURL(page.MustInfo().URL) + "?q=filename:yellow-wallpaper")
-	wait()
+	page.MustNavigate(base + "/library/" + libID + "?q=filename:yellow-wallpaper")
+	page.MustElement("#book-list") // wait for render
 
-	page.MustElementR("td", "yellow-wallpaper")
-
-	// The other books must not be present.
 	rows := page.MustElements("#book-list tbody tr")
 	if got := len(rows); got != 1 {
 		t.Errorf("got %d rows, want 1", got)
 	}
 
 	// An invalid query shows all books and an error message.
-	wait = page.MustWaitNavigation()
-	page.MustNavigate(base + "/library/" + libraryIDFromURL(page.MustInfo().URL) + "?q=tolkien OR hobbit")
-	wait()
-
+	page.MustNavigate(base + "/library/" + libID + "?q=tolkien%20OR%20hobbit")
 	page.MustElementR("p", "unexpected token")
 
 	entries, err := os.ReadDir("testdata/raw")
@@ -155,8 +164,12 @@ func TestQueryFilter(t *testing.T) {
 	}
 }
 
-// libraryIDFromURL extracts the library ID from a URL of the form /library/{id}.
+// libraryIDFromURL extracts the library ID from a URL of the form /library/{id}[?...].
 func libraryIDFromURL(u string) string {
+	// strip query string first
+	if i := strings.IndexByte(u, '?'); i >= 0 {
+		u = u[:i]
+	}
 	parts := strings.Split(strings.TrimRight(u, "/"), "/")
 	return parts[len(parts)-1]
 }
@@ -193,4 +206,36 @@ func TestDeleteLibrary(t *testing.T) {
 
 	// Should be back on the index with no libraries.
 	page.MustElementR("p", "No libraries yet")
+}
+
+// TestMetadataBackfill verifies that the background metadata poller re-extracts
+// and publishes metadata for books whose sync key is stale. The stale state is
+// set up before the server starts, and the poller is started only after the
+// browser has confirmed the no-metadata (filename-only) state, making the test
+// distinct from the initial-insertion path.
+func TestMetadataBackfill(t *testing.T) {
+	t.Parallel()
+	dir := symlinkTestdata(t)
+	base, libID, files, startPoller := newServerWithStaleBooks(t, dir)
+	if len(files) == 0 {
+		t.Fatal("no test fixtures in testdata/raw")
+	}
+	page := newPage(t)
+
+	// Navigate to the library page. Books have cleared metadata, so they render
+	// as filenames only.
+	page.MustNavigate(base + "/library/" + libID)
+	page.MustElementR("td", files[0])
+
+	// Start the metadata poller now that the stale state is confirmed in the
+	// browser. It will detect the stale key, re-extract metadata, and push an
+	// SSE update that replaces filename labels with author/title labels.
+	startPoller()
+
+	// The first book's filename disappears from the list once its metadata is
+	// restored — bookDisplayLabel switches to "Author - Title (year)" format.
+	page.MustWait(fmt.Sprintf(
+		`() => !document.querySelector('#book-list').textContent.includes(%q)`,
+		files[0],
+	))
 }

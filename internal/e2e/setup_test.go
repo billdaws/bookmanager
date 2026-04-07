@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/billdaws/bookmanager/internal/events"
+	"github.com/billdaws/bookmanager/internal/scanner"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 	"github.com/billdaws/bookmanager/internal/web"
 	"github.com/go-rod/rod"
@@ -98,6 +99,66 @@ func newServerWithPoller(t *testing.T, interval time.Duration) string {
 	t.Cleanup(srv.Close)
 
 	return srv.URL
+}
+
+// newServerWithStaleBooks creates a server pre-loaded with a library whose books
+// have had their extracted metadata cleared and their metadata_sync key stamped
+// as stale. It returns the server URL, the library ID, the scanned filenames,
+// and a startPoller func the test calls once it has confirmed the stale state
+// is visible in the browser. Splitting server creation from poller startup
+// eliminates the race between the initial page render and the first poller tick.
+func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string, func()) {
+	t.Helper()
+
+	database, err := storage.OpenDB(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	store := storage.NewStore(database)
+	bridge := events.NewEventBridge(nil)
+	ctx := context.Background()
+
+	files, err := scanner.ScanDirectory(dir)
+	if err != nil {
+		t.Fatalf("scan directory: %v", err)
+	}
+	libID, err := store.CreateLibraryWithBooks(ctx, "Backfill Library", dir, files)
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	// Stamp a stale sync key and clear extracted fields to simulate books that
+	// were inserted before the current extractable column set was defined.
+	if _, err := database.ExecContext(ctx,
+		`UPDATE metadata_sync SET columns_attempted = 'stale'
+		  WHERE book_id IN (SELECT id FROM books WHERE library_id = ?)`, libID,
+	); err != nil {
+		t.Fatalf("stamp stale key: %v", err)
+	}
+	if _, err := database.ExecContext(ctx,
+		`UPDATE books SET title = NULL, authors = NULL, publication_date = NULL
+		  WHERE library_id = ?`, libID,
+	); err != nil {
+		t.Fatalf("clear metadata: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	if err := web.Register(mux, store, bridge); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	startPoller := func() {
+		pollerCtx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		go events.NewMetadataPoller(store, bridge, 100*time.Millisecond).Run(pollerCtx)
+	}
+
+	return srv.URL, libID, files, startPoller
 }
 
 // symlinkTestdata creates a temp dir and symlinks every file from testdata/raw

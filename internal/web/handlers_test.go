@@ -433,6 +433,58 @@ func TestPostLibraryDelete_NotFound(t *testing.T) {
 	}
 }
 
+// TestGetLibrary_QueryFilterFilename checks that ?q=filename: filters books server-side.
+func TestGetLibrary_QueryFilterFilename(t *testing.T) {
+	store := setupTestStore(t)
+	dir := t.TempDir()
+	touch(t, dir, "alpha.epub")
+	touch(t, dir, "beta.pdf")
+
+	id, err := store.CreateLibraryWithBooks(context.Background(), "My Lib", dir, []string{"alpha.epub", "beta.pdf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/library/"+id+"?q=filename:alpha", nil)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handleLibrary(store)(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "alpha.epub") {
+		t.Error("expected alpha.epub in filtered results")
+	}
+	if strings.Contains(body, "beta.pdf") {
+		t.Error("beta.pdf should be filtered out")
+	}
+}
+
+// TestGetLibrary_QueryFilterInvalid checks that a parse error shows all books
+// plus an error message.
+func TestGetLibrary_QueryFilterInvalid(t *testing.T) {
+	store := setupTestStore(t)
+	dir := t.TempDir()
+	touch(t, dir, "alpha.epub")
+
+	id, err := store.CreateLibraryWithBooks(context.Background(), "My Lib", dir, []string{"alpha.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/library/"+id+"?q=tolkien+OR+hobbit", nil)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handleLibrary(store)(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "alpha.epub") {
+		t.Error("expected all books shown when query is invalid")
+	}
+	if !strings.Contains(body, "unexpected token") {
+		t.Error("expected parse error message in body")
+	}
+}
+
 // TestHandleLibraryEvents_NotFound checks that an unknown library ID returns 404.
 func TestHandleLibraryEvents_NotFound(t *testing.T) {
 	store := setupTestStore(t)

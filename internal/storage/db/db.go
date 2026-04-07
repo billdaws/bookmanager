@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/billdaws/bookmanager/internal/scanner"
@@ -36,9 +38,9 @@ type Library struct {
 type Book struct {
 	ID              string
 	Filename        string
-	Title           string
-	Authors         string // semicolon-delimited, in document order
-	PublicationDate string // "YYYY-MM-DD" or "YYYY"; empty if absent
+	Title           string `metadata:"sync"`
+	Authors         string `metadata:"sync"` // semicolon-delimited, in document order
+	PublicationDate string `metadata:"sync"` // "YYYY-MM-DD" or "YYYY"; empty if absent
 }
 
 // Store is the SQLite-backed data store. Callers that need to accept any
@@ -52,11 +54,27 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// extractableColumns is derived from Book fields tagged `metadata:"sync"`.
+// Adding or removing that tag is enough to change which columns are tracked;
+// the metadata poller will reprocess any book whose stored key no longer matches.
+var extractableColumns = func() []string {
+	var cols []string
+	for f := range reflect.TypeFor[Book]().Fields() {
+		if f.Tag.Get("metadata") == "sync" {
+			cols = append(cols, toSnakeCase(f.Name))
+		}
+	}
+	sort.Strings(cols)
+	return cols
+}()
+
+// currentColumnsKey is the value stored in metadata_sync.columns_attempted.
+var currentColumnsKey = strings.Join(extractableColumns, ",")
+
 // syncer is the subset of Store methods needed by SyncLibrary.
 type syncer interface {
 	ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
-	BackfillMetadata(ctx context.Context, libraryID, dir string) error
 }
 
 func OpenDB(path string) (*sql.DB, error) {
@@ -218,44 +236,60 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 	return books, rows.Err()
 }
 
-// BackfillMetadata updates metadata for books in the library that have none,
-// so libraries created before metadata extraction was added catch up on sync.
-func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) error {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, filename FROM books WHERE library_id = ? AND title IS NULL AND authors IS NULL`,
-		libraryID,
+// BackfillMetadata re-extracts metadata for books in the library whose
+// metadata_sync record is missing or was produced with a different columns set
+// than the current one. It returns true if any book's metadata was updated.
+func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT b.id, b.filename
+		FROM books b
+		LEFT JOIN metadata_sync ms ON ms.book_id = b.id
+		WHERE b.library_id = ?
+		  AND (ms.book_id IS NULL OR ms.columns_attempted != ?)`,
+		libraryID, currentColumnsKey,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer rows.Close()
 
-	type row struct{ id, filename string }
-	var missing []row
+	type bookRef struct{ id, filename string }
+	var stale []bookRef
 	for rows.Next() {
-		var r row
+		var r bookRef
 		if err := rows.Scan(&r.id, &r.filename); err != nil {
-			return err
+			return false, err
 		}
-		missing = append(missing, r)
+		stale = append(stale, r)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return false, err
 	}
 
-	for _, r := range missing {
+	updated := false
+	for _, r := range stale {
 		title, authors, pubDate := extractEpubMetadata(filepath.Join(dir, r.filename))
-		if title == "" && authors == "" {
-			continue
-		}
 		if _, err := s.db.ExecContext(ctx,
 			`UPDATE books SET title = ?, authors = ?, publication_date = ? WHERE id = ?`,
 			nilIfEmpty(title), nilIfEmpty(authors), nilIfEmpty(pubDate), r.id,
 		); err != nil {
-			return fmt.Errorf("backfill metadata for %s: %w", r.filename, err)
+			return false, fmt.Errorf("backfill metadata for %s: %w", r.filename, err)
+		}
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO metadata_sync (book_id, columns_attempted)
+			VALUES (?, ?)
+			ON CONFLICT(book_id) DO UPDATE SET
+				columns_attempted = excluded.columns_attempted,
+				attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`,
+			r.id, currentColumnsKey,
+		); err != nil {
+			return false, fmt.Errorf("update metadata_sync for %s: %w", r.filename, err)
+		}
+		if title != "" || authors != "" {
+			updated = true
 		}
 	}
-	return nil
+	return updated, nil
 }
 
 // SyncLibrary scans lib's directory and syncs the store to match.
@@ -294,32 +328,66 @@ func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 		}
 	}
 
-	if err := s.UpdateBooks(ctx, lib.ID, lib.Directory, toAdd, toRemove); err != nil {
-		return err
-	}
-	return s.BackfillMetadata(ctx, lib.ID, lib.Directory)
+	return s.UpdateBooks(ctx, lib.ID, lib.Directory, toAdd, toRemove)
 }
 
-// insertBooks inserts all filenames in a single INSERT statement, extracting
-// epub metadata for .epub files. It is a no-op if filenames is empty.
+// insertBooks inserts all filenames, extracting epub metadata where available,
+// and records a metadata_sync entry for each book. It is a no-op if filenames
+// is empty.
 func insertBooks(ctx context.Context, q dbtx, libraryID, dir string, filenames []string) error {
 	if len(filenames) == 0 {
 		return nil
 	}
 
-	placeholders := make([]string, len(filenames))
-	args := make([]any, 0, len(filenames)*6)
-	for i, filename := range filenames {
-		placeholders[i] = "(?, ?, ?, ?, ?, ?)"
-		title, authors, pubDate := extractEpubMetadata(filepath.Join(dir, filename))
-		args = append(args, uuid.New().String(), libraryID, filename, nilIfEmpty(title), nilIfEmpty(authors), nilIfEmpty(pubDate))
+	type bookRow struct {
+		id       string
+		filename string
+		title    string
+		authors  string
+		pubDate  string
+	}
+	rows := make([]bookRow, len(filenames))
+	for i, fn := range filenames {
+		title, authors, pubDate := extractEpubMetadata(filepath.Join(dir, fn))
+		rows[i] = bookRow{uuid.New().String(), fn, title, authors, pubDate}
 	}
 
-	query := "INSERT INTO books (id, library_id, filename, title, authors, publication_date) VALUES " + strings.Join(placeholders, ", ")
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	bookPlaceholders := make([]string, len(rows))
+	bookArgs := make([]any, 0, len(rows)*6)
+	syncPlaceholders := make([]string, len(rows))
+	syncArgs := make([]any, 0, len(rows)*2)
+	for i, r := range rows {
+		bookPlaceholders[i] = "(?, ?, ?, ?, ?, ?)"
+		bookArgs = append(bookArgs, r.id, libraryID, r.filename, nilIfEmpty(r.title), nilIfEmpty(r.authors), nilIfEmpty(r.pubDate))
+		syncPlaceholders[i] = "(?, ?)"
+		syncArgs = append(syncArgs, r.id, currentColumnsKey)
+	}
+
+	if _, err := q.ExecContext(ctx,
+		"INSERT INTO books (id, library_id, filename, title, authors, publication_date) VALUES "+strings.Join(bookPlaceholders, ", "),
+		bookArgs...,
+	); err != nil {
 		return fmt.Errorf("insert books: %w", err)
 	}
+	if _, err := q.ExecContext(ctx,
+		"INSERT INTO metadata_sync (book_id, columns_attempted) VALUES "+strings.Join(syncPlaceholders, ", "),
+		syncArgs...,
+	); err != nil {
+		return fmt.Errorf("insert metadata_sync: %w", err)
+	}
 	return nil
+}
+
+// toSnakeCase converts a CamelCase identifier to snake_case (ASCII only).
+func toSnakeCase(s string) string {
+	var b strings.Builder
+	for i, c := range s {
+		if i > 0 && c >= 'A' && c <= 'Z' {
+			b.WriteByte('_')
+		}
+		b.WriteRune(c)
+	}
+	return strings.ToLower(b.String())
 }
 
 func nilIfEmpty(s string) any {
