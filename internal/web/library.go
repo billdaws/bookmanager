@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/billdaws/bookmanager/internal/events"
+	"github.com/billdaws/bookmanager/internal/query"
 	"github.com/billdaws/bookmanager/internal/scanner"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 )
@@ -19,6 +20,7 @@ type libraryStore interface {
 	GetLibraryByID(ctx context.Context, id string) (*storage.Library, error)
 	CreateLibraryWithBooks(ctx context.Context, name, dir string, filenames []string) (string, error)
 	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
+	BackfillMetadata(ctx context.Context, libraryID, dir string) error
 	DeleteLibrary(ctx context.Context, id string) (bool, error)
 	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
 }
@@ -34,9 +36,11 @@ type setupPageData struct {
 }
 
 type libraryPageData struct {
-	Library   *storage.Library
-	Books     []storage.Book
-	SyncError string
+	Library    *storage.Library
+	Books      []storage.Book
+	SyncError  string
+	Query      string
+	QueryError string
 }
 
 type confirmDeletePageData struct {
@@ -54,11 +58,36 @@ func bookDisplayLabel(b storage.Book) string {
 	return b.Authors + " - " + b.Title
 }
 
-func bookSearchText(b storage.Book) string {
-	if b.Authors != "" {
-		return b.Authors
+func bookYear(b storage.Book) string {
+	if len(b.PublicationDate) >= 4 {
+		return b.PublicationDate[:4]
 	}
-	return b.Filename
+	return b.PublicationDate
+}
+
+// applyQuery filters books by the raw query string and returns the filtered
+// list plus any parse error message. On parse error the unfiltered list is
+// returned so the user still sees results.
+func applyQuery(books []storage.Book, rawQuery string) ([]storage.Book, string) {
+	if rawQuery == "" {
+		return books, ""
+	}
+	expr, err := query.Parse(rawQuery)
+	if err != nil {
+		return books, err.Error()
+	}
+	out := make([]storage.Book, 0, len(books))
+	for _, b := range books {
+		if query.Match(expr, query.Fields{
+			Title:    b.Title,
+			Authors:  b.Authors,
+			Year:     bookYear(b),
+			Filename: b.Filename,
+		}) {
+			out = append(out, b)
+		}
+	}
+	return out, ""
 }
 
 func handleIndex(store libraryStore) http.HandlerFunc {
@@ -204,6 +233,7 @@ func handleLibraryEvents(store libraryStore, bridge *events.EventBridge) http.Ha
 
 		ch := make(chan string, 1)
 		subName := fmt.Sprintf("sse-%p", ch)
+		rawQuery := r.URL.Query().Get("q")
 
 		ctx := r.Context()
 		unsub := bridge.Subscribe(events.TopicLibraryBooksChanged(id), subName, func(e events.Event) error {
@@ -211,6 +241,7 @@ func handleLibraryEvents(store libraryStore, bridge *events.EventBridge) http.Ha
 			if err != nil {
 				return err
 			}
+			books, _ = applyQuery(books, rawQuery)
 			var buf strings.Builder
 			if err := BookList(books).Render(ctx, &buf); err != nil {
 				return err
@@ -248,17 +279,18 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 			return
 		}
 
-		data := libraryPageData{Library: lib}
+		data := libraryPageData{Library: lib, Query: r.URL.Query().Get("q")}
 
 		if err := storage.SyncLibrary(r.Context(), store, lib); err != nil {
 			data.SyncError = fmt.Sprintf("Could not sync library: %v", err)
 		}
 
-		data.Books, err = store.ListBooks(r.Context(), id)
+		books, err := store.ListBooks(r.Context(), id)
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
+		data.Books, data.QueryError = applyQuery(books, data.Query)
 
 		if err := LibraryPage(data).Render(r.Context(), w); err != nil {
 			http.Error(w, "render error", http.StatusInternalServerError)

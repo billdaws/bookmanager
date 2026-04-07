@@ -14,19 +14,17 @@ import (
 	"github.com/templui/templui/components/input"
 )
 
-func connectEventSource(libraryID string) templ.ComponentScript {
+func connectEventSource(libraryID string, query string) templ.ComponentScript {
 	return templ.ComponentScript{
-		Name: `__templ_connectEventSource_040e`,
-		Function: `function __templ_connectEventSource_040e(libraryID){const filterEl = document.getElementById("author-filter");
-	const source = new EventSource("/library/" + libraryID + "/events");
+		Name: `__templ_connectEventSource_00c7`,
+		Function: `function __templ_connectEventSource_00c7(libraryID, query){const source = new EventSource("/library/" + libraryID + "/events?q=" + encodeURIComponent(query));
 	source.addEventListener("books-updated", function(e) {
 		document.getElementById("book-list").outerHTML = e.data;
-		filterBooks(filterEl ? filterEl.value : "");
 	});
 	window.addEventListener("beforeunload", () => source.close());
 }`,
-		Call:       templ.SafeScript(`__templ_connectEventSource_040e`, libraryID),
-		CallInline: templ.SafeScriptInline(`__templ_connectEventSource_040e`, libraryID),
+		Call:       templ.SafeScript(`__templ_connectEventSource_00c7`, libraryID, query),
+		CallInline: templ.SafeScriptInline(`__templ_connectEventSource_00c7`, libraryID, query),
 	}
 }
 
@@ -63,14 +61,14 @@ func LibraryPage(data libraryPageData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<script>\n\t\t\tfunction filterBooks(query) {\n\t\t\t\tconst q = query.toLowerCase();\n\t\t\t\tdocument.querySelectorAll('#book-list tr[data-search]').forEach(function(row) {\n\t\t\t\t\trow.style.display = (q === '' || row.dataset.search.toLowerCase().includes(q)) ? '' : 'none';\n\t\t\t\t});\n\t\t\t}\n\t\t</script> <main class=\"container mx-auto p-8 max-w-2xl\"><a href=\"/\" class=\"text-sm text-muted-foreground hover:underline mb-4 inline-block\">← All libraries</a><div class=\"flex items-center gap-2 mb-2\"><h1 class=\"text-2xl font-bold\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<main class=\"container mx-auto p-8 max-w-2xl\"><a href=\"/\" class=\"text-sm text-muted-foreground hover:underline mb-4 inline-block\">← All libraries</a><div class=\"flex items-center gap-2 mb-2\"><h1 class=\"text-2xl font-bold\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(data.Library.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 32, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 22, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -83,7 +81,7 @@ func LibraryPage(data libraryPageData) templ.Component {
 			var templ_7745c5c3_Var4 templ.SafeURL
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/library/" + data.Library.ID + "/delete"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 38, Col: 71}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 28, Col: 71}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -101,7 +99,7 @@ func LibraryPage(data libraryPageData) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(data.SyncError)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 48, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 38, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -119,7 +117,7 @@ func LibraryPage(data libraryPageData) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", len(data.Books)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 51, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 41, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -132,43 +130,56 @@ func LibraryPage(data libraryPageData) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(data.Library.Directory)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 51, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 41, Col: 84}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</code></p><div class=\"border rounded-lg\"><div class=\"flex items-center gap-2 p-2 border-b\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = input.Input(input.Props{
-				ID:          "author-filter",
-				Type:        input.TypeSearch,
-				Placeholder: "Filter by author...",
-				Attributes:  templ.Attributes{"oninput": "filterBooks(this.value)"},
-			}).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</code></p><div class=\"border rounded-lg\"><div class=\"flex items-center gap-2 p-2 border-b\"><form class=\"flex-1\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var8 templ.SafeURL
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/library/" + data.Library.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 61, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 45, Col: 79}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" method=\"GET\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var9 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Err = input.Input(input.Props{
+				ID:          "query",
+				Type:        input.TypeSearch,
+				Placeholder: `Search (e.g. author:tolkien, title:"the hobbit", year:1954)`,
+				Attributes:  templ.Attributes{"name": "q", "value": data.Query},
+			}).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</form><a href=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var9 templ.SafeURL
+			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/library/" + data.Library.ID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 53, Col: 59}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Var10 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -180,17 +191,40 @@ func LibraryPage(data libraryPageData) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "Refresh")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "Refresh")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</a></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</a></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if data.QueryError != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<p class=\"text-destructive text-sm px-3 py-2 border-b\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var11 string
+				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(data.QueryError)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/library.templ`, Line: 60, Col: 77}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<details class=\"text-sm text-muted-foreground px-3 border-b\"><summary class=\"cursor-pointer py-2 select-none\">Search syntax</summary><div class=\"pb-3 space-y-1\"><p><code>tolkien</code> — search all fields</p><p><code>author:tolkien</code> — filter by author</p><p><code>title:\"the hobbit\"</code> — filter by title (quote phrases)</p><p><code>year:1954</code> — filter by publication year</p><p><code>filename:hobbit.epub</code> — filter by filename</p><p><code>(author:tolkien OR author:lewis)</code> — OR group</p><p>Space or <code>AND</code> between terms means AND: <code>author:tolkien year:1954</code></p></div></details>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -198,11 +232,11 @@ func LibraryPage(data libraryPageData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div></main>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</div></main>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = connectEventSource(data.Library.ID).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = connectEventSource(data.Library.ID, data.Query).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

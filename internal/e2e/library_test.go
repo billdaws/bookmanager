@@ -5,6 +5,7 @@ package e2e
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -106,6 +107,58 @@ func TestPollerUpdatesBookList(t *testing.T) {
 		t.Fatalf("remove: %v", err)
 	}
 	page.MustElementR("td", "No books found.")
+}
+
+// TestQueryFilter creates a library with books and verifies that the search
+// DSL filters the book list server-side.
+func TestQueryFilter(t *testing.T) {
+	t.Parallel()
+	base := newServer(t)
+	page := newPage(t)
+	dir := symlinkTestdata(t)
+
+	// Create a library with all test books.
+	page.MustNavigate(base + "/library/new")
+	page.MustWaitLoad()
+	page.MustElement("#name").MustInput("Filter Library")
+	page.MustElement("#directory").MustInput(dir)
+	page.MustElement(`button[type="submit"]`).MustClick()
+	page.MustElement(`a[href="/"]`) // wait for library page
+
+	// Navigate with a filename: query — only yellow-wallpaper should appear.
+	wait := page.MustWaitNavigation()
+	page.MustNavigate(base + "/library/" + libraryIDFromURL(page.MustInfo().URL) + "?q=filename:yellow-wallpaper")
+	wait()
+
+	page.MustElementR("td", "yellow-wallpaper")
+
+	// The other books must not be present.
+	rows := page.MustElements("#book-list tbody tr")
+	if got := len(rows); got != 1 {
+		t.Errorf("got %d rows, want 1", got)
+	}
+
+	// An invalid query shows all books and an error message.
+	wait = page.MustWaitNavigation()
+	page.MustNavigate(base + "/library/" + libraryIDFromURL(page.MustInfo().URL) + "?q=tolkien OR hobbit")
+	wait()
+
+	page.MustElementR("p", "unexpected token")
+
+	entries, err := os.ReadDir("testdata/raw")
+	if err != nil {
+		t.Fatalf("read testdata/raw: %v", err)
+	}
+	rows = page.MustElements("#book-list tbody tr")
+	if got, want := len(rows), len(entries); got != want {
+		t.Errorf("got %d rows on error query, want %d (all books)", got, want)
+	}
+}
+
+// libraryIDFromURL extracts the library ID from a URL of the form /library/{id}.
+func libraryIDFromURL(u string) string {
+	parts := strings.Split(strings.TrimRight(u, "/"), "/")
+	return parts[len(parts)-1]
 }
 
 // TestDeleteLibrary creates a library via the UI and then deletes it through

@@ -56,6 +56,7 @@ func NewStore(db *sql.DB) *Store {
 type syncer interface {
 	ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
+	BackfillMetadata(ctx context.Context, libraryID, dir string) error
 }
 
 func OpenDB(path string) (*sql.DB, error) {
@@ -217,6 +218,46 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 	return books, rows.Err()
 }
 
+// BackfillMetadata updates metadata for books in the library that have none,
+// so libraries created before metadata extraction was added catch up on sync.
+func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) error {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, filename FROM books WHERE library_id = ? AND title IS NULL AND authors IS NULL`,
+		libraryID,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type row struct{ id, filename string }
+	var missing []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.filename); err != nil {
+			return err
+		}
+		missing = append(missing, r)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, r := range missing {
+		title, authors, pubDate := extractEpubMetadata(filepath.Join(dir, r.filename))
+		if title == "" && authors == "" {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE books SET title = ?, authors = ?, publication_date = ? WHERE id = ?`,
+			nilIfEmpty(title), nilIfEmpty(authors), nilIfEmpty(pubDate), r.id,
+		); err != nil {
+			return fmt.Errorf("backfill metadata for %s: %w", r.filename, err)
+		}
+	}
+	return nil
+}
+
 // SyncLibrary scans lib's directory and syncs the store to match.
 func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 	filenames, err := scanner.ScanDirectory(lib.Directory)
@@ -253,7 +294,10 @@ func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 		}
 	}
 
-	return s.UpdateBooks(ctx, lib.ID, lib.Directory, toAdd, toRemove)
+	if err := s.UpdateBooks(ctx, lib.ID, lib.Directory, toAdd, toRemove); err != nil {
+		return err
+	}
+	return s.BackfillMetadata(ctx, lib.ID, lib.Directory)
 }
 
 // insertBooks inserts all filenames in a single INSERT statement, extracting

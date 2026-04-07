@@ -17,7 +17,7 @@ templ BookList(books []storage.Book) {
 					}
 				} else {
 					for _, book := range books {
-						@table.Row(table.RowProps{Attributes: templ.Attributes{"data-search": bookSearchText(book)}}) {
+						@table.Row() {
 							@table.Cell() {
 								{ bookDisplayLabel(book) }
 							}
