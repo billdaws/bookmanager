@@ -25,98 +25,6 @@
           program = "${self.packages.${system}.default}/bin/bookmanager";
         };
 
-        apps.generate-diagrams = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "generate-diagrams" ''
-            set -euo pipefail
-            ${if pkgs.stdenv.isDarwin then ''
-              browser=""
-              for candidate in \
-                "/Applications/Chromium.app/Contents/MacOS/Chromium" \
-                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; do
-                if [ -x "$candidate" ]; then
-                  browser="$candidate"
-                  break
-                fi
-              done
-              if [ -z "''${browser:-}" ]; then
-                echo "error: no browser found; install Chromium, Chrome, or Brave" >&2
-                exit 1
-              fi
-            '' else ''
-              browser="${pkgs.chromium}/bin/chromium"
-            ''}
-            puppeteer_cfg=$(mktemp -t puppeteer-XXXXXX.json)
-            trap 'rm -f "$puppeteer_cfg"' EXIT
-            printf '{"executablePath":"%s"}' "$browser" > "$puppeteer_cfg"
-            for f in docs/*.mmd; do
-              echo "Rendering $f..."
-              ${pkgs.mermaid-cli}/bin/mmdc -p "$puppeteer_cfg" -i "$f" -o "''${f%.mmd}.svg"
-            done
-            echo "Done."
-          '');
-        };
-
-        apps.test = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "test" ''
-            set -euo pipefail
-            all=0
-            for arg in "$@"; do
-              if [ "$arg" = "--all" ]; then all=1; fi
-            done
-            if [ "$all" = "1" ]; then
-              echo "Running all tests (including -race)..."
-              ${pkgs.go}/bin/go test -race ./...
-            else
-              echo "Running tests (pass --all to include -race)..."
-              ${pkgs.go}/bin/go test ./...
-            fi
-          '');
-        };
-
-        apps.test-e2e = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "test-e2e" ''
-            set -euo pipefail
-            docker build -t bookmanager-e2e -f Dockerfile.e2e .
-            docker run --rm bookmanager-e2e
-          '');
-        };
-
-        apps.build-css = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "build-css" ''
-            set -euo pipefail
-            ${pkgs.tailwindcss_4}/bin/tailwindcss \
-              -i internal/web/static/input.css \
-              -o internal/web/static/app.css \
-              --minify
-          '');
-        };
-
-        apps.generate-templ = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "generate-templ" ''
-            set -euo pipefail
-            ${pkgs.templ}/bin/templ generate ./internal/web/
-          '');
-        };
-
-        apps.upgrade-htmx = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "upgrade-htmx" ''
-            set -euo pipefail
-            version=$(${pkgs.curl}/bin/curl -fsSL https://registry.npmjs.org/htmx.org/latest \
-              | ${pkgs.jq}/bin/jq -r '.version')
-            echo "Downloading htmx $version..."
-            ${pkgs.curl}/bin/curl -fsSL \
-              "https://cdn.jsdelivr.net/npm/htmx.org@$version/dist/htmx.min.js" \
-              -o static/htmx.min.js
-            echo "htmx $version → static/htmx.min.js"
-          '');
-        };
-
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             # Go toolchain
@@ -134,7 +42,6 @@
 
             # Handy during development
             air          # live reload
-            mermaid-cli  # mmdc — diagram generation
             gnumake
           ];
 
