@@ -61,7 +61,7 @@ func LibraryPage(data libraryPageData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<main class=\"container mx-auto p-8 max-w-2xl\"><a href=\"/\" class=\"text-sm text-muted-foreground hover:underline mb-4 inline-block\">← All libraries</a><div class=\"flex items-center gap-2 mb-2\"><h1 class=\"text-2xl font-bold\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<main class=\"container mx-auto p-8 max-w-5xl\"><a href=\"/\" class=\"text-sm text-muted-foreground hover:underline mb-4 inline-block\">← All libraries</a><div class=\"flex items-center gap-2 mb-2\"><h1 class=\"text-2xl font-bold\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

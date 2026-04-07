@@ -16,7 +16,7 @@ script connectEventSource(libraryID string, query string) {
 
 templ LibraryPage(data libraryPageData) {
 	@layout("Bookmanager — " + data.Library.Name) {
-		<main class="container mx-auto p-8 max-w-2xl">
+		<main class="container mx-auto p-8 max-w-5xl">
 			<a href="/" class="text-sm text-muted-foreground hover:underline mb-4 inline-block">← All libraries</a>
 			<div class="flex items-center gap-2 mb-2">
 				<h1 class="text-2xl font-bold">{ data.Library.Name }</h1>
