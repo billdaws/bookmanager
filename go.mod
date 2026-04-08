@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/a-h/templ v0.3.1001
-	github.com/billdaws/epub v1.0.0
+	github.com/billdaws/epub v1.0.1
 	github.com/codingconcepts/env v0.0.0-20240618133406-5b0845441187
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
