@@ -15,6 +15,10 @@ import (
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 )
 
+type noopPoller struct{}
+
+func (noopPoller) RunNow() {}
+
 func setupTestStore(t *testing.T) *storage.Store {
 	t.Helper()
 	database, err := storage.OpenDB(":memory:")
@@ -104,7 +108,7 @@ func TestPostLibrary_Valid(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(store, events.NewEventBridge(nil))(w, req)
+	handleCreateLibrary(store, events.NewEventBridge(nil), noopPoller{})(w, req)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusSeeOther {
@@ -139,7 +143,7 @@ func TestPostLibrary_MissingName(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(store, events.NewEventBridge(nil))(w, req)
+	handleCreateLibrary(store, events.NewEventBridge(nil), noopPoller{})(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -157,7 +161,7 @@ func TestPostLibrary_BadDirectory(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(store, events.NewEventBridge(nil))(w, req)
+	handleCreateLibrary(store, events.NewEventBridge(nil), noopPoller{})(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)
@@ -177,7 +181,7 @@ func TestPostLibrary_FileNotDir(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/library", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handleCreateLibrary(store, events.NewEventBridge(nil))(w, req)
+	handleCreateLibrary(store, events.NewEventBridge(nil), noopPoller{})(w, req)
 
 	if w.Result().StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", w.Result().StatusCode)

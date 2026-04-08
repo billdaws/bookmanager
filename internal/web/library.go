@@ -128,6 +128,7 @@ func handleCreateLibrary(store libraryStore, bridge *events.EventBridge, metadat
 
 		renderError := func(msg string) {
 			log.Printf("handleCreateLibrary: rendering error: %s", msg)
+			w.WriteHeader(http.StatusUnprocessableEntity)
 			SetupPage(setupPageData{Error: msg, Name: name, Directory: dir}).Render(r.Context(), w)
 		}
 

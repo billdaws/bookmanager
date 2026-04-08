@@ -27,6 +27,7 @@ templ SetupPage(data setupPageData) {
 				hx-post="/library"
 				hx-target="body"
 				hx-swap="outerHTML"
+				hx-on:htmx:before-swap="event.detail.shouldSwap=true"
 				class="space-y-4"
 			>
 				<div class="space-y-1">
