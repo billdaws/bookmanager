@@ -129,8 +129,11 @@ func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string
 		t.Fatalf("create library: %v", err)
 	}
 
-	// Stamp a stale sync key and clear extracted fields to simulate books that
-	// were inserted before the current extractable column set was defined.
+	// Run an initial backfill to stamp metadata_sync rows, then mark them stale
+	// and clear extracted fields to simulate books whose columns key is outdated.
+	if _, err := store.BackfillMetadata(ctx, libID, dir); err != nil {
+		t.Fatalf("initial backfill: %v", err)
+	}
 	if _, err := database.ExecContext(ctx,
 		`UPDATE metadata_sync SET columns_attempted = 'stale'
 		  WHERE book_id IN (SELECT id FROM books WHERE library_id = ?)`, libID,

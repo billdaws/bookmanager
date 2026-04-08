@@ -40,11 +40,11 @@ type Library struct {
 }
 
 type Book struct {
-	ID              string
-	Filename        string
-	Title           string `metadata:"sync"`
-	Authors         string `metadata:"sync"` // semicolon-delimited, in document order
-	PublicationDate string `metadata:"sync"` // "YYYY-MM-DD" or "YYYY"; empty if absent
+	ID              string `db:"id"`
+	Filename        string `db:"filename"`
+	Title           string `db:"title"            metadata:"sync"`
+	Authors         string `db:"authors"          metadata:"sync"` // semicolon-delimited, in document order
+	PublicationDate string `db:"publication_date" metadata:"sync"` // "YYYY-MM-DD" or "YYYY"; empty if absent
 }
 
 // Store is the SQLite-backed data store. Callers that need to accept any
@@ -155,7 +155,7 @@ func (s *Store) CreateLibraryWithBooks(ctx context.Context, name, dir string, fi
 		return "", fmt.Errorf("insert library: %w", err)
 	}
 
-	if err := insertBooks(ctx, tx, libraryID, dir, filenames); err != nil {
+	if err := insertBooksWithoutMetadata(ctx, tx, libraryID, filenames); err != nil {
 		return "", err
 	}
 
@@ -173,7 +173,7 @@ func (s *Store) UpdateBooks(ctx context.Context, libraryID, dir string, filesToA
 	}
 	defer tx.Rollback()
 
-	if err := insertBooks(ctx, tx, libraryID, dir, filesToAdd); err != nil {
+	if err := insertBooksWithMetadata(ctx, tx, libraryID, dir, filesToAdd); err != nil {
 		return err
 	}
 
@@ -420,51 +420,68 @@ func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 	return s.UpdateBooks(ctx, lib.ID, lib.Directory, toAdd, toRemove)
 }
 
-// insertBooks inserts all filenames, extracting epub metadata where available,
-// and records a metadata_sync entry for each book. It is a no-op if filenames
-// is empty.
-func insertBooks(ctx context.Context, q dbtx, libraryID, dir string, filenames []string) error {
-	if len(filenames) == 0 {
+// insertBookRows is the shared core used by insertBooksWithMetadata and
+// insertBooksWithoutMetadata. When stampMetadataSync is true it also inserts a
+// metadata_sync entry for each row stamped with the current columns key.
+func insertBookRows(ctx context.Context, q dbtx, libraryID string, rows []Book, stampMetadataSync bool) error {
+	if len(rows) == 0 {
 		return nil
-	}
-
-	type bookRow struct {
-		id       string
-		filename string
-		title    string
-		authors  string
-		pubDate  string
-	}
-	rows := make([]bookRow, len(filenames))
-	for i, fn := range filenames {
-		title, authors, pubDate := extractMetadata(filepath.Join(dir, fn))
-		rows[i] = bookRow{uuid.New().String(), fn, title, authors, pubDate}
 	}
 
 	bookPlaceholders := make([]string, len(rows))
 	bookArgs := make([]any, 0, len(rows)*6)
-	syncPlaceholders := make([]string, len(rows))
-	syncArgs := make([]any, 0, len(rows)*2)
 	for i, r := range rows {
 		bookPlaceholders[i] = "(?, ?, ?, ?, ?, ?)"
-		bookArgs = append(bookArgs, r.id, libraryID, r.filename, nilIfEmpty(r.title), nilIfEmpty(r.authors), nilIfEmpty(r.pubDate))
-		syncPlaceholders[i] = "(?, ?)"
-		syncArgs = append(syncArgs, r.id, currentColumnsKey)
+		bookArgs = append(bookArgs, r.ID, libraryID, r.Filename, nilIfEmpty(r.Title), nilIfEmpty(r.Authors), nilIfEmpty(r.PublicationDate))
 	}
-
 	if _, err := q.ExecContext(ctx,
 		"INSERT INTO books (id, library_id, filename, title, authors, publication_date) VALUES "+strings.Join(bookPlaceholders, ", "),
 		bookArgs...,
 	); err != nil {
 		return fmt.Errorf("insert books: %w", err)
 	}
-	if _, err := q.ExecContext(ctx,
-		"INSERT INTO metadata_sync (book_id, columns_attempted) VALUES "+strings.Join(syncPlaceholders, ", "),
-		syncArgs...,
-	); err != nil {
-		return fmt.Errorf("insert metadata_sync: %w", err)
+
+	if stampMetadataSync {
+		syncPlaceholders := make([]string, len(rows))
+		syncArgs := make([]any, 0, len(rows)*2)
+		for i, r := range rows {
+			syncPlaceholders[i] = "(?, ?)"
+			syncArgs = append(syncArgs, r.ID, currentColumnsKey)
+		}
+		if _, err := q.ExecContext(ctx,
+			"INSERT INTO metadata_sync (book_id, columns_attempted) VALUES "+strings.Join(syncPlaceholders, ", "),
+			syncArgs...,
+		); err != nil {
+			return fmt.Errorf("insert metadata_sync: %w", err)
+		}
 	}
+
 	return nil
+}
+
+// insertBooksWithMetadata inserts filenames as books, extracting metadata for
+// each file and recording a metadata_sync entry. Use this for small incremental
+// additions (e.g. new files detected by the filesystem poller) where per-file
+// I/O is acceptable. It is a no-op if filenames is empty.
+func insertBooksWithMetadata(ctx context.Context, q dbtx, libraryID, dir string, filenames []string) error {
+	rows := make([]Book, len(filenames))
+	for i, fn := range filenames {
+		title, authors, pubDate := extractMetadata(filepath.Join(dir, fn))
+		rows[i] = Book{ID: uuid.New().String(), Filename: fn, Title: title, Authors: authors, PublicationDate: pubDate}
+	}
+	return insertBookRows(ctx, q, libraryID, rows, true)
+}
+
+// insertBooksWithoutMetadata inserts filenames as books with no metadata and no
+// metadata_sync record. MetadataPoller picks them up on its next tick via the
+// missing sync row. Use this for large initial imports where opening every file
+// synchronously would block the request.
+func insertBooksWithoutMetadata(ctx context.Context, q dbtx, libraryID string, filenames []string) error {
+	rows := make([]Book, len(filenames))
+	for i, fn := range filenames {
+		rows[i] = Book{ID: uuid.New().String(), Filename: fn}
+	}
+	return insertBookRows(ctx, q, libraryID, rows, false)
 }
 
 // toSnakeCase converts a CamelCase identifier to snake_case (ASCII only).

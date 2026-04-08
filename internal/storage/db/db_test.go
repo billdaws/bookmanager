@@ -31,9 +31,10 @@ func metadataSyncColumns(t *testing.T, s *Store, bookID string) string {
 	return cols
 }
 
-// TestInsertBooks_RecordsMetadataSync verifies that inserting books also
-// creates a metadata_sync row stamped with the current columns key.
-func TestInsertBooks_RecordsMetadataSync(t *testing.T) {
+// TestInsertBooksWithoutMetadata_NoSyncRow verifies that the deferred insert
+// path used by CreateLibraryWithBooks does not create a metadata_sync row —
+// MetadataPoller picks up books via the missing row on its next tick.
+func TestInsertBooksWithoutMetadata_NoSyncRow(t *testing.T) {
 	s := openTestStore(t)
 	dir := t.TempDir()
 
@@ -50,9 +51,8 @@ func TestInsertBooks_RecordsMetadataSync(t *testing.T) {
 		t.Fatalf("expected 1 book, got %d", len(books))
 	}
 
-	got := metadataSyncColumns(t, s, books[0].ID)
-	if got != currentColumnsKey {
-		t.Errorf("columns_attempted = %q, want %q", got, currentColumnsKey)
+	if got := metadataSyncColumns(t, s, books[0].ID); got != "" {
+		t.Errorf("expected no metadata_sync row after deferred insert, got columns_attempted = %q", got)
 	}
 }
 
@@ -67,6 +67,12 @@ func TestBackfillMetadata_SkipsUpToDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// First pass stamps the metadata_sync row.
+	if _, err := s.BackfillMetadata(context.Background(), id, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second pass should find nothing to do.
 	updated, err := s.BackfillMetadata(context.Background(), id, dir)
 	if err != nil {
 		t.Fatal(err)
@@ -93,8 +99,13 @@ func TestBackfillMetadata_ReprocessesStaleColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Simulate a previously-extracted column set by dropping the last column,
-	// as if a new metadata field was added since this book was last processed.
+	// Run an initial backfill to stamp the sync row, then simulate a stale
+	// columns key by dropping the last column as if a new metadata field was
+	// added since this book was last processed.
+	if _, err := s.BackfillMetadata(context.Background(), id, dir); err != nil {
+		t.Fatal(err)
+	}
+
 	cols := strings.Split(currentColumnsKey, ",")
 	oldKey := strings.Join(cols[:len(cols)-1], ",")
 	if _, err := s.db.ExecContext(context.Background(),

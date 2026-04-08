@@ -112,18 +112,22 @@ func handleLibraryNew() http.HandlerFunc {
 	}
 }
 
-func handleCreateLibrary(store libraryStore, bridge *events.EventBridge) http.HandlerFunc {
+func handleCreateLibrary(store libraryStore, bridge *events.EventBridge, metadataJob metadataPoller) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("handleCreateLibrary: received %s %s", r.Method, r.URL)
+
 		if err := r.ParseForm(); err != nil {
+			log.Printf("handleCreateLibrary: ParseForm error: %v", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
 
 		name := strings.TrimSpace(r.FormValue("name"))
 		dir := strings.TrimSpace(r.FormValue("directory"))
+		log.Printf("handleCreateLibrary: name=%q dir=%q", name, dir)
 
 		renderError := func(msg string) {
-			w.WriteHeader(http.StatusUnprocessableEntity)
+			log.Printf("handleCreateLibrary: rendering error: %s", msg)
 			SetupPage(setupPageData{Error: msg, Name: name, Directory: dir}).Render(r.Context(), w)
 		}
 
@@ -137,24 +141,35 @@ func handleCreateLibrary(store libraryStore, bridge *events.EventBridge) http.Ha
 		}
 
 		info, err := os.Stat(dir)
-		if err != nil || !info.IsDir() {
+		if err != nil {
+			log.Printf("handleCreateLibrary: os.Stat(%q) error: %v", dir, err)
+			renderError("Directory does not exist or is not a directory.")
+			return
+		}
+		if !info.IsDir() {
+			log.Printf("handleCreateLibrary: %q is not a directory", dir)
 			renderError("Directory does not exist or is not a directory.")
 			return
 		}
 
 		filenames, err := scanner.ScanDirectory(dir)
 		if err != nil {
+			log.Printf("handleCreateLibrary: ScanDirectory error: %v", err)
 			http.Error(w, "could not scan directory", http.StatusInternalServerError)
 			return
 		}
+		log.Printf("handleCreateLibrary: scanned %d files", len(filenames))
 
 		id, err := store.CreateLibraryWithBooks(r.Context(), name, dir, filenames)
 		if err != nil {
+			log.Printf("handleCreateLibrary: CreateLibraryWithBooks error: %v", err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
+		log.Printf("handleCreateLibrary: created library id=%s", id)
 
 		bridge.Publish(events.TopicLibraryCreated, &storage.Library{ID: id, Name: name, Directory: dir})
+		metadataJob.RunNow()
 		http.Redirect(w, r, "/library/"+id, http.StatusSeeOther)
 	}
 }

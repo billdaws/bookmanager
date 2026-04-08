@@ -14,8 +14,13 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+// metadataPoller is the subset of events.MetadataPoller used by the web layer.
+type metadataPoller interface {
+	RunNow()
+}
+
 // Register wires up all routes on mux.
-func Register(mux *http.ServeMux, store libraryStore, bridge *events.EventBridge) error {
+func Register(mux *http.ServeMux, store libraryStore, bridge *events.EventBridge, poller metadataPoller) error {
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		return fmt.Errorf("static fs: %w", err)
@@ -25,7 +30,7 @@ func Register(mux *http.ServeMux, store libraryStore, bridge *events.EventBridge
 
 	mux.HandleFunc("GET /", handleIndex(store))
 	mux.HandleFunc("GET /library/new", handleLibraryNew())
-	mux.HandleFunc("POST /library", handleCreateLibrary(store, bridge))
+	mux.HandleFunc("POST /library", handleCreateLibrary(store, bridge, poller))
 	mux.HandleFunc("GET /library/{id}", handleLibrary(store))
 	mux.HandleFunc("GET /library/{id}/events", handleLibraryEvents(store, bridge))
 	mux.HandleFunc("GET /library/{id}/delete", handleLibraryDeleteConfirm(store))

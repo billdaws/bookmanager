@@ -23,11 +23,21 @@ type MetadataPoller struct {
 	store    metadataStore
 	bridge   *EventBridge
 	interval time.Duration
+	trigger  chan struct{}
 }
 
 // NewMetadataPoller creates a MetadataPoller that runs every interval.
 func NewMetadataPoller(store metadataStore, bridge *EventBridge, interval time.Duration) *MetadataPoller {
-	return &MetadataPoller{store: store, bridge: bridge, interval: interval}
+	return &MetadataPoller{store: store, bridge: bridge, interval: interval, trigger: make(chan struct{}, 1)}
+}
+
+// RunNow schedules an immediate backfill pass without waiting for the next
+// ticker tick. It is safe to call from any goroutine.
+func (p *MetadataPoller) RunNow() {
+	select {
+	case p.trigger <- struct{}{}:
+	default: // a pass is already pending; no need to queue another
+	}
 }
 
 // Run executes an immediate backfill pass and then repeats every interval.
@@ -42,6 +52,8 @@ func (p *MetadataPoller) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-p.trigger:
+			p.runOnce(ctx)
 		case <-ticker.C:
 			p.runOnce(ctx)
 		}
@@ -54,15 +66,25 @@ func (p *MetadataPoller) runOnce(ctx context.Context) {
 		log.Printf("metadata poller: list libraries: %v", err)
 		return
 	}
+	if len(libs) == 0 {
+		return
+	}
+	log.Printf("metadata poller: starting pass over %d librar%s", len(libs), map[bool]string{true: "y", false: "ies"}[len(libs) == 1])
+	start := time.Now()
 	for _, lib := range libs {
+		log.Printf("metadata poller: backfilling %q (%s)", lib.Name, lib.Directory)
+		libStart := time.Now()
 		updated, err := p.store.BackfillMetadata(ctx, lib.ID, lib.Directory)
 		if err != nil {
 			log.Printf("metadata poller: backfill %q: %v", lib.Name, err)
 			continue
 		}
 		if updated {
-			log.Printf("metadata poller: updated metadata for library %q", lib.Name)
+			log.Printf("metadata poller: updated metadata for library %q in %s", lib.Name, time.Since(libStart).Round(time.Millisecond))
 			p.bridge.Publish(TopicLibraryBooksChanged(lib.ID), nil)
+		} else {
+			log.Printf("metadata poller: library %q already up to date (%.0fs)", lib.Name, time.Since(libStart).Seconds())
 		}
 	}
+	log.Printf("metadata poller: pass complete in %s", time.Since(start).Round(time.Millisecond))
 }
