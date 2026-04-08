@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -178,5 +179,97 @@ func TestBackfillMetadata_DeleteCascades(t *testing.T) {
 
 	if got := metadataSyncColumns(t, s, bookID); got != "" {
 		t.Errorf("expected metadata_sync row to be deleted, got %q", got)
+	}
+}
+
+// manualOverrides reads the manual_overrides JSON from metadata_sync for a
+// given book and returns it as a map. Returns an empty map if no row exists.
+func manualOverrides(t *testing.T, s *Store, bookID string) map[string]bool {
+	t.Helper()
+	var raw string
+	err := s.db.QueryRowContext(context.Background(),
+		`SELECT manual_overrides FROM metadata_sync WHERE book_id = ?`, bookID,
+	).Scan(&raw)
+	if err != nil {
+		return map[string]bool{}
+	}
+	var m map[string]bool
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("unmarshal manual_overrides %q: %v", raw, err)
+	}
+	return m
+}
+
+// TestUpdateBookMetadata_SetsManualOverrides verifies that updating a book with
+// non-empty fields records those fields as manual overrides, and that empty
+// fields are absent from the override set.
+func TestUpdateBookMetadata_SetsManualOverrides(t *testing.T) {
+	s := openTestStore(t)
+	dir := t.TempDir()
+
+	libID, err := s.CreateLibraryWithBooks(context.Background(), "Lib", dir, []string{"book.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	books, err := s.ListBooks(context.Background(), libID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bookID := books[0].ID
+
+	if err := s.UpdateBookMetadata(context.Background(), bookID, "My Title", "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	overrides := manualOverrides(t, s, bookID)
+	if !overrides["title"] {
+		t.Error("expected title to be a manual override")
+	}
+	if overrides["authors"] {
+		t.Error("expected authors not to be a manual override")
+	}
+	if overrides["publication_date"] {
+		t.Error("expected publication_date not to be a manual override")
+	}
+}
+
+// TestBackfillMetadata_RespectsManualOverrides verifies that BackfillMetadata
+// does not overwrite fields listed in manual_overrides.
+func TestBackfillMetadata_RespectsManualOverrides(t *testing.T) {
+	s := openTestStore(t)
+	dir := t.TempDir()
+
+	libID, err := s.CreateLibraryWithBooks(context.Background(), "Lib", dir, []string{"book.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	books, err := s.ListBooks(context.Background(), libID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bookID := books[0].ID
+
+	// Manually set the title; leave authors for auto-extraction.
+	if err := s.UpdateBookMetadata(context.Background(), bookID, "Locked Title", "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Force the book to be considered stale so backfill runs.
+	if _, err := s.db.ExecContext(context.Background(),
+		`UPDATE metadata_sync SET columns_attempted = 'stale' WHERE book_id = ?`, bookID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.BackfillMetadata(context.Background(), libID, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := s.ListBooks(context.Background(), libID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated[0].Title != "Locked Title" {
+		t.Errorf("title = %q, want %q (manual override should be preserved)", updated[0].Title, "Locked Title")
 	}
 }

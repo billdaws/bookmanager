@@ -7,6 +7,9 @@ generate:
 	templ generate ./internal/web/
 
 build-css:
+	TEMPLUI_PATH="$$(GOWORK=off go list -m -f '{{.Dir}}' github.com/templui/templui)" && \
+	printf '@source "%s/components/**/*.templ";\n' "$$TEMPLUI_PATH" \
+	  > internal/web/static/sources.generated.css
 	tailwindcss -i internal/web/static/input.css -o internal/web/static/app.css --minify
 
 test:

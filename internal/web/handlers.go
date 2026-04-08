@@ -30,6 +30,7 @@ func Register(mux *http.ServeMux, store libraryStore, bridge *events.EventBridge
 	mux.HandleFunc("GET /library/{id}/events", handleLibraryEvents(store, bridge))
 	mux.HandleFunc("GET /library/{id}/delete", handleLibraryDeleteConfirm(store))
 	mux.HandleFunc("POST /library/{id}/delete", handleLibraryDelete(store))
+	mux.HandleFunc("POST /library/{id}/book/{bookID}", handleUpdateBook(store))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticSub)))
 	return nil
 }

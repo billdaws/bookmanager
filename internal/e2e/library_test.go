@@ -164,6 +164,46 @@ func TestQueryFilter(t *testing.T) {
 	}
 }
 
+// TestEditBookMetadata opens the edit sheet for a book, updates its title, and
+// verifies the change appears in the book list after save.
+func TestEditBookMetadata(t *testing.T) {
+	t.Parallel()
+	base := newServer(t)
+	page := newPage(t)
+	dir := symlinkTestdata(t)
+
+	page.MustNavigate(base + "/library/new")
+	page.MustWaitLoad()
+	page.MustElement("#name").MustInput("Edit Library")
+	page.MustElement("#directory").MustInput(dir)
+	page.MustElement(`button[type="submit"]`).MustClick()
+	page.MustElement(`a[href="/"]`) // wait for library page
+
+	// Wait for the page to fully load (including module scripts) before using sheets.
+	page.MustWait(`() => document.readyState === "complete"`)
+	page.MustWait(`() => typeof window.tui?.dialog?.toggle === "function"`)
+
+	// Click the edit icon button for the first book. The trigger span is
+	// display:contents (no bounding box), so click the button inside it.
+	page.MustElement(`[data-tui-dialog-trigger] button`).MustClick()
+
+	// Wait for the sheet to be open before interacting with it.
+	page.MustWait(`() => document.querySelector('[data-tui-dialog-open="true"]') !== null`)
+	titleInput := page.MustElement(`[data-tui-dialog-open="true"] input[name="title"]`)
+
+	// Replace whatever title is there with a custom value.
+	titleInput.MustSelectAllText()
+	titleInput.MustInput("My Custom Title")
+
+	// Submit the form → POST → 303 → library page.
+	wait := page.MustWaitNavigation()
+	page.MustElement(`[data-tui-dialog-open="true"] button[type="submit"]`).MustClick()
+	wait()
+
+	// The custom title should appear in the book list.
+	page.MustElementR("#book-list", "My Custom Title")
+}
+
 // libraryIDFromURL extracts the library ID from a URL of the form /library/{id}[?...].
 func libraryIDFromURL(u string) string {
 	// strip query string first

@@ -1,0 +1,59 @@
+package web
+
+import (
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/input"
+	"github.com/templui/templui/components/label"
+	"github.com/templui/templui/components/sheet"
+)
+
+templ bookEditSheet(libraryID string, book storage.Book) {
+	@sheet.Sheet(sheet.Props{ID: "book-edit-" + book.ID}) {
+		@sheet.Content() {
+			@sheet.Header() {
+				@sheet.Title() {
+					Edit metadata
+				}
+			}
+			<div class="p-4 space-y-4 overflow-y-auto">
+				<form method="POST" action={ templ.SafeURL("/library/" + libraryID + "/book/" + book.ID) } class="space-y-4">
+					<div class="space-y-1">
+						@label.Label(label.Props{For: "title-" + book.ID}) {
+							Title
+						}
+						@input.Input(input.Props{
+							ID:    "title-" + book.ID,
+							Name:  "title",
+							Value: book.Title,
+						})
+					</div>
+					<div class="space-y-1">
+						@label.Label(label.Props{For: "authors-" + book.ID}) {
+							Authors
+						}
+						@input.Input(input.Props{
+							ID:    "authors-" + book.ID,
+							Name:  "authors",
+							Value: book.Authors,
+						})
+					</div>
+					<div class="space-y-1">
+						@label.Label(label.Props{For: "pub-date-" + book.ID}) {
+							Publication date
+						}
+						@input.Input(input.Props{
+							ID:          "pub-date-" + book.ID,
+							Name:        "publication_date",
+							Value:       book.PublicationDate,
+							Placeholder: "YYYY or YYYY-MM-DD",
+						})
+					</div>
+					@button.Button(button.Props{Type: button.TypeSubmit, Class: "w-full"}) {
+						Save
+					}
+				</form>
+			</div>
+		}
+	}
+}

@@ -22,6 +22,8 @@ type libraryStore interface {
 	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
 	DeleteLibrary(ctx context.Context, id string) (bool, error)
 	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
+	GetBook(ctx context.Context, libraryID, bookID string) (*storage.Book, error)
+	UpdateBookMetadata(ctx context.Context, bookID, title, authors, pubDate string) error
 }
 
 type indexPageData struct {
@@ -242,7 +244,7 @@ func handleLibraryEvents(store libraryStore, bridge *events.EventBridge) http.Ha
 			}
 			books, _ = applyQuery(books, rawQuery)
 			var buf strings.Builder
-			if err := BookList(books).Render(ctx, &buf); err != nil {
+			if err := BookList(id, books).Render(ctx, &buf); err != nil {
 				return err
 			}
 			select {
@@ -294,5 +296,38 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 		if err := LibraryPage(data).Render(r.Context(), w); err != nil {
 			http.Error(w, "render error", http.StatusInternalServerError)
 		}
+	}
+}
+
+func handleUpdateBook(store libraryStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		libraryID := r.PathValue("id")
+		bookID := r.PathValue("bookID")
+
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		title := strings.TrimSpace(r.FormValue("title"))
+		authors := strings.TrimSpace(r.FormValue("authors"))
+		pubDate := strings.TrimSpace(r.FormValue("publication_date"))
+
+		book, err := store.GetBook(r.Context(), libraryID, bookID)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if book == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		if err := store.UpdateBookMetadata(r.Context(), bookID, title, authors, pubDate); err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		http.Redirect(w, r, "/library/"+libraryID, http.StatusSeeOther)
 	}
 }

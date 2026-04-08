@@ -75,9 +75,10 @@ templ LibraryPage(data libraryPageData) {
 						<p>Space or <code>AND</code> between terms means AND: <code>author:tolkien year:1954</code></p>
 					</div>
 				</details>
-				@BookList(data.Books)
+				@BookList(data.Library.ID, data.Books)
 			</div>
 		</main>
 		@connectEventSource(data.Library.ID, data.Query)
+		@BookListScript()
 	}
 }

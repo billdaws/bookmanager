@@ -2,10 +2,17 @@ package web
 
 import (
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/sheet"
 	"github.com/templui/templui/components/table"
 )
 
-templ BookList(books []storage.Book) {
+// BookListScript must be called once per library page to load the sheet/dialog JS.
+templ BookListScript() {
+	@sheet.Script()
+}
+
+templ BookList(libraryID string, books []storage.Book) {
 	<div id="book-list">
 		@table.Table() {
 			@table.Body() {
@@ -21,10 +28,20 @@ templ BookList(books []storage.Book) {
 							@table.Cell() {
 								{ bookDisplayLabel(book) }
 							}
+							@table.Cell(table.CellProps{Class: "w-10 text-right"}) {
+								@sheet.Trigger(sheet.TriggerProps{For: "book-edit-" + book.ID}) {
+									@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon}) {
+										<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+									}
+								}
+							}
 						}
 					}
 				}
 			}
+		}
+		for _, book := range books {
+			@bookEditSheet(libraryID, book)
 		}
 	</div>
 }

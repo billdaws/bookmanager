@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -14,6 +16,8 @@ import (
 	"github.com/billdaws/bookmanager/internal/scanner"
 	"github.com/billdaws/epub"
 	"github.com/google/uuid"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
+	pdfmodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
@@ -238,10 +242,11 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 
 // BackfillMetadata re-extracts metadata for books in the library whose
 // metadata_sync record is missing or was produced with a different columns set
-// than the current one. It returns true if any book's metadata was updated.
+// than the current one. Fields listed in manual_overrides are skipped.
+// It returns true if any book's metadata was updated.
 func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT b.id, b.filename
+		SELECT b.id, b.filename, COALESCE(ms.manual_overrides, '{}')
 		FROM books b
 		LEFT JOIN metadata_sync ms ON ms.book_id = b.id
 		WHERE b.library_id = ?
@@ -253,11 +258,11 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bo
 	}
 	defer rows.Close()
 
-	type bookRef struct{ id, filename string }
+	type bookRef struct{ id, filename, manualOverrides string }
 	var stale []bookRef
 	for rows.Next() {
 		var r bookRef
-		if err := rows.Scan(&r.id, &r.filename); err != nil {
+		if err := rows.Scan(&r.id, &r.filename, &r.manualOverrides); err != nil {
 			return false, err
 		}
 		stale = append(stale, r)
@@ -268,28 +273,112 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bo
 
 	updated := false
 	for _, r := range stale {
-		title, authors, pubDate := extractEpubMetadata(filepath.Join(dir, r.filename))
-		if _, err := s.db.ExecContext(ctx,
-			`UPDATE books SET title = ?, authors = ?, publication_date = ? WHERE id = ?`,
-			nilIfEmpty(title), nilIfEmpty(authors), nilIfEmpty(pubDate), r.id,
-		); err != nil {
-			return false, fmt.Errorf("backfill metadata for %s: %w", r.filename, err)
+		var overrides map[string]bool
+		if err := json.Unmarshal([]byte(r.manualOverrides), &overrides); err != nil {
+			overrides = map[string]bool{}
 		}
+
+		title, authors, pubDate := extractMetadata(filepath.Join(dir, r.filename))
+
+		var sets []string
+		var args []any
+		if !overrides["title"] {
+			sets = append(sets, "title = ?")
+			args = append(args, nilIfEmpty(title))
+		}
+		if !overrides["authors"] {
+			sets = append(sets, "authors = ?")
+			args = append(args, nilIfEmpty(authors))
+		}
+		if !overrides["publication_date"] {
+			sets = append(sets, "publication_date = ?")
+			args = append(args, nilIfEmpty(pubDate))
+		}
+		if len(sets) > 0 {
+			args = append(args, r.id)
+			if _, err := s.db.ExecContext(ctx,
+				"UPDATE books SET "+strings.Join(sets, ", ")+" WHERE id = ?",
+				args...,
+			); err != nil {
+				return false, fmt.Errorf("backfill metadata for %s: %w", r.filename, err)
+			}
+		}
+
 		if _, err := s.db.ExecContext(ctx, `
-			INSERT INTO metadata_sync (book_id, columns_attempted)
-			VALUES (?, ?)
+			INSERT INTO metadata_sync (book_id, columns_attempted, manual_overrides)
+			VALUES (?, ?, '{}')
 			ON CONFLICT(book_id) DO UPDATE SET
 				columns_attempted = excluded.columns_attempted,
-				attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`,
+				attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+				manual_overrides  = manual_overrides`,
 			r.id, currentColumnsKey,
 		); err != nil {
 			return false, fmt.Errorf("update metadata_sync for %s: %w", r.filename, err)
 		}
-		if title != "" || authors != "" {
+
+		if (!overrides["title"] && title != "") || (!overrides["authors"] && authors != "") {
 			updated = true
 		}
 	}
 	return updated, nil
+}
+
+// GetBook returns the book with the given ID belonging to libraryID, or nil if
+// not found.
+func (s *Store) GetBook(ctx context.Context, libraryID, bookID string) (*Book, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, filename, COALESCE(title, ''), COALESCE(authors, ''), COALESCE(publication_date, '')
+		 FROM books WHERE id = ? AND library_id = ?`,
+		bookID, libraryID,
+	)
+	var b Book
+	if err := row.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate); err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// UpdateBookMetadata sets title, authors, and pubDate on a book and records
+// non-empty fields as manual overrides so the backfill job will not overwrite
+// them. Setting a field to empty releases its override.
+func (s *Store) UpdateBookMetadata(ctx context.Context, bookID, title, authors, pubDate string) error {
+	overrides := map[string]bool{}
+	if title != "" {
+		overrides["title"] = true
+	}
+	if authors != "" {
+		overrides["authors"] = true
+	}
+	if pubDate != "" {
+		overrides["publication_date"] = true
+	}
+
+	overridesJSON, err := json.Marshal(overrides)
+	if err != nil {
+		return fmt.Errorf("marshal overrides: %w", err)
+	}
+
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE books SET title = ?, authors = ?, publication_date = ? WHERE id = ?`,
+		nilIfEmpty(title), nilIfEmpty(authors), nilIfEmpty(pubDate), bookID,
+	); err != nil {
+		return fmt.Errorf("update book metadata: %w", err)
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO metadata_sync (book_id, columns_attempted, manual_overrides)
+		VALUES (?, '', ?)
+		ON CONFLICT(book_id) DO UPDATE SET
+			columns_attempted = '',
+			attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+			manual_overrides  = excluded.manual_overrides`,
+		bookID, string(overridesJSON),
+	); err != nil {
+		return fmt.Errorf("update metadata_sync overrides: %w", err)
+	}
+	return nil
 }
 
 // SyncLibrary scans lib's directory and syncs the store to match.
@@ -348,7 +437,7 @@ func insertBooks(ctx context.Context, q dbtx, libraryID, dir string, filenames [
 	}
 	rows := make([]bookRow, len(filenames))
 	for i, fn := range filenames {
-		title, authors, pubDate := extractEpubMetadata(filepath.Join(dir, fn))
+		title, authors, pubDate := extractMetadata(filepath.Join(dir, fn))
 		rows[i] = bookRow{uuid.New().String(), fn, title, authors, pubDate}
 	}
 
@@ -395,6 +484,32 @@ func nilIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func extractMetadata(path string) (title, authors, publicationDate string) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".epub":
+		return extractEpubMetadata(path)
+	case ".pdf":
+		return extractPDFMetadata(path)
+	}
+	return
+}
+
+func extractPDFMetadata(path string) (title, author string, _ string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	conf := pdfmodel.NewDefaultConfiguration()
+	conf.ValidationMode = pdfmodel.ValidationRelaxed
+	info, err := api.PDFInfo(f, path, nil, false, conf)
+	if err != nil {
+		return
+	}
+	return info.Title, info.Author, ""
 }
 
 func extractEpubMetadata(path string) (title, authors, publicationDate string) {

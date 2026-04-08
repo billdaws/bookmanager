@@ -47,3 +47,4 @@ testdata
 *.db
 *.db-shm
 *.db-wal
+internal/web/static/sources.generated.css
