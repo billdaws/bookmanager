@@ -190,17 +190,21 @@ func TestEditBookMetadata(t *testing.T) {
 	// Wait for the sheet to be open before interacting with it.
 	page.MustWait(`() => document.querySelector('[data-tui-dialog-open="true"]') !== null`)
 	titleInput := page.MustElement(`[data-tui-dialog-open="true"] input[name="title"]`)
+	authorsInput := page.MustElement(`[data-tui-dialog-open="true"] input[name="authors"]`)
 
-	// Replace whatever title is there with a custom value.
+	// Replace whatever values are there with custom ones. Both must be set so
+	// bookDisplayLabel renders "Authors - Title" rather than falling back to filename.
 	titleInput.MustSelectAllText()
 	titleInput.MustInput("My Custom Title")
+	authorsInput.MustSelectAllText()
+	authorsInput.MustInput("Test Author")
 
 	// Submit the form → POST → 303 → library page.
 	wait := page.MustWaitNavigation()
 	page.MustElement(`[data-tui-dialog-open="true"] button[type="submit"]`).MustClick()
 	wait()
 
-	// The custom title should appear in the book list.
+	// The custom title should appear in the book list label ("Test Author - My Custom Title").
 	page.MustElementR("#book-list", "My Custom Title")
 }
 

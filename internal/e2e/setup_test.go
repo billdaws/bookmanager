@@ -21,6 +21,10 @@ import (
 
 var browser *rod.Browser
 
+type noopPoller struct{}
+
+func (noopPoller) RunNow() {}
+
 func TestMain(m *testing.M) {
 	bin := os.Getenv("CHROMIUM_BIN")
 	if bin == "" {
@@ -52,7 +56,7 @@ func newServer(t *testing.T) string {
 	bridge := events.NewEventBridge(nil)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -91,7 +95,7 @@ func newServerWithPoller(t *testing.T, interval time.Duration) string {
 	poller.Register(ctx)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -147,8 +151,10 @@ func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string
 		t.Fatalf("clear metadata: %v", err)
 	}
 
+	metaPoller := events.NewMetadataPoller(store, bridge, 100*time.Millisecond)
+
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge); err != nil {
+	if err := web.Register(mux, store, bridge, metaPoller); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -158,7 +164,7 @@ func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string
 	startPoller := func() {
 		pollerCtx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
-		go events.NewMetadataPoller(store, bridge, 100*time.Millisecond).Run(pollerCtx)
+		go metaPoller.Run(pollerCtx)
 	}
 
 	return srv.URL, libID, files, startPoller
