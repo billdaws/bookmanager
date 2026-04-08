@@ -7,7 +7,7 @@
 
 ## Templating
 
-- Templates use [templ](https://templ.guide/) — `.templ` files in `internal/web/` generate `*_templ.go` files via `nix run .#generate-templ` or `templ generate ./internal/web/` (inside `nix develop`).
+- Templates use [templ](https://templ.guide/) — `.templ` files in `internal/web/` generate `*_templ.go` files via `make generate` or `templ generate ./internal/web/` (inside `nix develop`).
 - Page components (`IndexPage`, `LibraryPage`, etc.) are called directly from handlers: `ComponentName(data).Render(r.Context(), w)`.
 - The `layout` component (in `layout.templ`) wraps every full page and provides the HTML shell, stylesheet link, and body. Each page passes its own `<title>` string.
 - For JavaScript that needs Go values (e.g. the SSE URL), use a `script` template rather than inline string concatenation.
@@ -16,7 +16,7 @@
 ## Styling
 
 - CSS: [Tailwind CSS](https://tailwindcss.com/) v4 + [templUI](https://templui.io/) component library.
-- Input: `internal/web/static/input.css`. Output: `internal/web/static/app.css` (committed). Rebuild with `nix run .#build-css` or `tailwindcss -i internal/web/static/input.css -o internal/web/static/app.css --minify` (inside `nix develop`).
+- Input: `internal/web/static/input.css`. Output: `internal/web/static/app.css` (committed). Rebuild with `make build-css` or `tailwindcss -i internal/web/static/input.css -o internal/web/static/app.css --minify` (inside `nix develop`).
 - `tailwindcss` is available in the Nix devShell (`nix develop`). For CSS hot-reload during development, run `tailwindcss -i internal/web/static/input.css -o internal/web/static/app.css --watch` in a second terminal alongside `air`.
 - Use templUI components (`button`, `input`, `label`, `card`, `alert`, `table`, etc.) from `github.com/templui/templui/components/...`.
 
@@ -40,7 +40,7 @@
 
 - E2E tests are in scope for all feature work. When adding or changing UI routes, handlers, or templates, check whether existing e2e tests need updating and add new ones for new flows.
 - E2E tests live in `internal/e2e/` and are gated behind the `e2e` build tag — they are excluded from `go test ./...`.
-- Run them locally with `nix run .#test-e2e` (builds and runs `Dockerfile.e2e`, which installs Chromium). In CI they run directly against the pre-installed `google-chrome` on the `ubuntu-latest` runner.
+- Run them locally with `make test-e2e` (builds and runs `Dockerfile.e2e`, which installs Chromium). In CI they run directly against the pre-installed `google-chrome` on the `ubuntu-latest` runner.
 - Each test calls `t.Parallel()` — the shared `rod.Browser` is safe for concurrent use across pages.
 - Each test gets its own isolated server via `newServer(t)` (fresh `httptest.Server` + in-memory SQLite DB) and its own browser tab via `newPage(t)`.
 - Use `page.MustWaitNavigation()` (subscribe before the click, call the returned func after) for actions that trigger full-page navigation. Do not use `page.MustWaitLoad()` after a click — it resolves immediately if `document.readyState` is already `"complete"` and will return before the navigation finishes.
