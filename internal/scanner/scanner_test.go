@@ -46,20 +46,77 @@ func TestScanDirectory(t *testing.T) {
 	}
 }
 
-func TestScanDirectory_SkipsSubdirectories(t *testing.T) {
+func TestScanDirectory_RecursesSubdirectories(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "a", "b"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	// .epub inside subdir should not appear — scanner is non-recursive
-	f, err := os.Create(filepath.Join(dir, "subdir", "nested.epub"))
+
+	for _, rel := range []string{"top.epub", "a/mid.pdf", "a/b/deep.mobi"} {
+		f, err := os.Create(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+
+	got, err := ScanDirectory(dir)
+	if err != nil {
+		t.Fatalf("ScanDirectory: %v", err)
+	}
+
+	want := map[string]bool{
+		"top.epub":      true,
+		"a/mid.pdf":     true,
+		"a/b/deep.mobi": true,
+	}
+
+	if len(got) != len(want) {
+		t.Errorf("got %d files, want %d: %v", len(got), len(want), got)
+	}
+	for _, name := range got {
+		if !want[name] {
+			t.Errorf("unexpected file in results: %q", name)
+		}
+	}
+}
+
+func TestScanDirectory_FollowsSymlinkedDirectories(t *testing.T) {
+	real := t.TempDir()
+	f, err := os.Create(filepath.Join(real, "linked.epub"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.Close()
 
-	f, err = os.Create(filepath.Join(dir, "top.epub"))
+	dir := t.TempDir()
+	if err := os.Symlink(real, filepath.Join(dir, "books")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ScanDirectory(dir)
+	if err != nil {
+		t.Fatalf("ScanDirectory: %v", err)
+	}
+
+	if len(got) != 1 || got[0] != "books/linked.epub" {
+		t.Errorf("got %v, want [books/linked.epub]", got)
+	}
+}
+
+func TestScanDirectory_SymlinkLoopDetection(t *testing.T) {
+	dir := t.TempDir()
+
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// symlink sub/loop → dir, creating a cycle
+	if err := os.Symlink(dir, filepath.Join(sub, "loop")); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(dir, "book.epub"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,8 +127,8 @@ func TestScanDirectory_SkipsSubdirectories(t *testing.T) {
 		t.Fatalf("ScanDirectory: %v", err)
 	}
 
-	if len(got) != 1 || got[0] != "top.epub" {
-		t.Errorf("got %v, want [top.epub]", got)
+	if len(got) != 1 || got[0] != "book.epub" {
+		t.Errorf("got %v, want [book.epub]", got)
 	}
 }
 
