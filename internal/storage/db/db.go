@@ -87,6 +87,13 @@ func OpenDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("open: %w", err)
 	}
 
+	// Each :memory: connection is an independent database, so a pool would give
+	// different goroutines different (empty) databases. A single connection
+	// ensures everyone shares the same in-memory instance.
+	if path == ":memory:" {
+		db.SetMaxOpenConns(1)
+	}
+
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return nil, fmt.Errorf("wal: %w", err)
 	}
