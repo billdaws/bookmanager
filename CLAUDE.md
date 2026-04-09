@@ -1,5 +1,9 @@
 # Bookmanager
 
+## Public repository
+
+This is a public repository. Never commit secrets, credentials, API keys, tokens, personal file-system paths, or any other sensitive information.
+
 ## UI conventions
 
 - For actions that mutate state (POST/DELETE), use `<button>` elements, not `<a>` links.
