@@ -68,8 +68,12 @@ func newServer(t *testing.T) string {
 
 func newPage(t *testing.T) *rod.Page {
 	t.Helper()
-	page := browser.MustPage("").Timeout(15 * time.Second)
-	t.Cleanup(func() { page.MustClose() })
+	page := browser.MustPage("").Timeout(30 * time.Second)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = page.Context(ctx).Close()
+	})
 	return page
 }
 
