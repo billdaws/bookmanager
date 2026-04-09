@@ -18,6 +18,17 @@ jobs:
 
       - run: go test -race ./...
 
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: go test -bench=. -benchmem -run='^$' -count=1 ./internal/storage/db/ ./internal/web/
+
   test-e2e:
     runs-on: ubuntu-latest
     steps:

@@ -1,4 +1,4 @@
-.PHONY: setup generate build-css test test-race test-e2e upgrade-htmx generate-diagrams
+.PHONY: setup generate build-css test test-race test-e2e bench upgrade-htmx generate-diagrams
 
 setup:
 	git config core.hooksPath .githooks
@@ -17,6 +17,12 @@ test:
 
 test-race:
 	go test -race ./...
+
+bench:
+	go test -bench=. -benchmem -count=3 ./internal/storage/db/ ./internal/web/
+
+bench-ci: ## GOMAXPROCS=2 matches the GitHub Actions ubuntu-latest runner (2 vCPUs)
+	GOMAXPROCS=2 go test -bench=. -benchmem -run='^$' -count=1 ./internal/storage/db/ ./internal/web/
 
 test-e2e:
 	docker build -t bookmanager-e2e -f Dockerfile.e2e .

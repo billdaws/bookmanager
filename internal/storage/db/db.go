@@ -177,11 +177,11 @@ func (s *Store) UpdateBooks(ctx context.Context, libraryID, dir string, filesToA
 		return err
 	}
 
-	if len(bookIDsToRemove) > 0 {
-		placeholders := strings.Repeat("?,", len(bookIDsToRemove))
+	for _, chunk := range chunkSlice(bookIDsToRemove, insertBatchSize) {
+		placeholders := strings.Repeat("?,", len(chunk))
 		placeholders = placeholders[:len(placeholders)-1]
-		args := make([]any, len(bookIDsToRemove))
-		for i, id := range bookIDsToRemove {
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
 			args[i] = id
 		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM books WHERE id IN ("+placeholders+")", args...); err != nil {
@@ -423,36 +423,44 @@ func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 // insertBookRows is the shared core used by insertBooksWithMetadata and
 // insertBooksWithoutMetadata. When stampMetadataSync is true it also inserts a
 // metadata_sync entry for each row stamped with the current columns key.
+// insertBatchSize is chosen so that the number of bound parameters per
+// statement stays well within SQLite's SQLITE_MAX_VARIABLE_NUMBER limit
+// (32 766). Books use 6 columns and metadata_sync uses 2, so 1 000 rows ×
+// 6 = 6 000 parameters per batch — safely under the ceiling.
+const insertBatchSize = 1000
+
 func insertBookRows(ctx context.Context, q dbtx, libraryID string, rows []Book, stampMetadataSync bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
 
-	bookPlaceholders := make([]string, len(rows))
-	bookArgs := make([]any, 0, len(rows)*6)
-	for i, r := range rows {
-		bookPlaceholders[i] = "(?, ?, ?, ?, ?, ?)"
-		bookArgs = append(bookArgs, r.ID, libraryID, r.Filename, nilIfEmpty(r.Title), nilIfEmpty(r.Authors), nilIfEmpty(r.PublicationDate))
-	}
-	if _, err := q.ExecContext(ctx,
-		"INSERT INTO books (id, library_id, filename, title, authors, publication_date) VALUES "+strings.Join(bookPlaceholders, ", "),
-		bookArgs...,
-	); err != nil {
-		return fmt.Errorf("insert books: %w", err)
-	}
-
-	if stampMetadataSync {
-		syncPlaceholders := make([]string, len(rows))
-		syncArgs := make([]any, 0, len(rows)*2)
-		for i, r := range rows {
-			syncPlaceholders[i] = "(?, ?)"
-			syncArgs = append(syncArgs, r.ID, currentColumnsKey)
+	for _, chunk := range chunkSlice(rows, insertBatchSize) {
+		bookPlaceholders := make([]string, len(chunk))
+		bookArgs := make([]any, 0, len(chunk)*6)
+		for i, r := range chunk {
+			bookPlaceholders[i] = "(?, ?, ?, ?, ?, ?)"
+			bookArgs = append(bookArgs, r.ID, libraryID, r.Filename, nilIfEmpty(r.Title), nilIfEmpty(r.Authors), nilIfEmpty(r.PublicationDate))
 		}
 		if _, err := q.ExecContext(ctx,
-			"INSERT INTO metadata_sync (book_id, columns_attempted) VALUES "+strings.Join(syncPlaceholders, ", "),
-			syncArgs...,
+			"INSERT INTO books (id, library_id, filename, title, authors, publication_date) VALUES "+strings.Join(bookPlaceholders, ", "),
+			bookArgs...,
 		); err != nil {
-			return fmt.Errorf("insert metadata_sync: %w", err)
+			return fmt.Errorf("insert books: %w", err)
+		}
+
+		if stampMetadataSync {
+			syncPlaceholders := make([]string, len(chunk))
+			syncArgs := make([]any, 0, len(chunk)*2)
+			for i, r := range chunk {
+				syncPlaceholders[i] = "(?, ?)"
+				syncArgs = append(syncArgs, r.ID, currentColumnsKey)
+			}
+			if _, err := q.ExecContext(ctx,
+				"INSERT INTO metadata_sync (book_id, columns_attempted) VALUES "+strings.Join(syncPlaceholders, ", "),
+				syncArgs...,
+			); err != nil {
+				return fmt.Errorf("insert metadata_sync: %w", err)
+			}
 		}
 	}
 
@@ -494,6 +502,15 @@ func toSnakeCase(s string) string {
 		b.WriteRune(c)
 	}
 	return strings.ToLower(b.String())
+}
+
+// chunkSlice splits s into consecutive sub-slices of at most size elements.
+func chunkSlice[T any](s []T, size int) [][]T {
+	var chunks [][]T
+	for i := 0; i < len(s); i += size {
+		chunks = append(chunks, s[i:min(i+size, len(s))])
+	}
+	return chunks
 }
 
 func nilIfEmpty(s string) any {
