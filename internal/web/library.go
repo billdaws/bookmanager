@@ -95,10 +95,12 @@ func handleIndex(store libraryStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		libs, err := store.ListLibraries(r.Context())
 		if err != nil {
+			log.Printf("handleIndex: ListLibraries error: %v", err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
 		if err := IndexPage(indexPageData{Libraries: libs}).Render(r.Context(), w); err != nil {
+			log.Printf("handleIndex: render error: %v", err)
 			http.Error(w, "render error", http.StatusInternalServerError)
 		}
 	}
@@ -177,8 +179,10 @@ func handleCreateLibrary(store libraryStore, bridge *events.EventBridge, metadat
 
 func handleLibraryDeleteConfirm(store libraryStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		lib, err := store.GetLibraryByID(r.Context(), r.PathValue("id"))
+		id := r.PathValue("id")
+		lib, err := store.GetLibraryByID(r.Context(), id)
 		if err != nil {
+			log.Printf("handleLibraryDeleteConfirm: GetLibraryByID(%s) error: %v", id, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
@@ -196,6 +200,7 @@ func handleLibraryDelete(store libraryStore) http.HandlerFunc {
 
 		lib, err := store.GetLibraryByID(r.Context(), id)
 		if err != nil {
+			log.Printf("handleLibraryDelete: GetLibraryByID(%s) error: %v", id, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
@@ -205,11 +210,13 @@ func handleLibraryDelete(store libraryStore) http.HandlerFunc {
 		}
 
 		if err := r.ParseForm(); err != nil {
+			log.Printf("handleLibraryDelete: ParseForm error: %v", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
 
 		if r.FormValue("name") != lib.Name {
+			log.Printf("handleLibraryDelete: name mismatch for library %s (%s)", lib.Name, id)
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			ConfirmDeletePage(confirmDeletePageData{
 				Library: lib,
@@ -219,10 +226,12 @@ func handleLibraryDelete(store libraryStore) http.HandlerFunc {
 		}
 
 		if _, err := store.DeleteLibrary(r.Context(), id); err != nil {
+			log.Printf("handleLibraryDelete: DeleteLibrary(%s) error: %v", id, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
 
+		log.Printf("handleLibraryDelete: deleted library %s (%s)", lib.Name, id)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
 }
@@ -299,17 +308,20 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 		data := libraryPageData{Library: lib, Query: r.URL.Query().Get("q")}
 
 		if err := storage.SyncLibrary(r.Context(), store, lib); err != nil {
+			log.Printf("handleLibrary: SyncLibrary(%s) error: %v", id, err)
 			data.SyncError = fmt.Sprintf("Could not sync library: %v", err)
 		}
 
 		books, err := store.ListBooks(r.Context(), id)
 		if err != nil {
+			log.Printf("handleLibrary: ListBooks(%s) error: %v", id, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
 		data.Books, data.QueryError = applyQuery(books, data.Query)
 
 		if err := LibraryPage(data).Render(r.Context(), w); err != nil {
+			log.Printf("handleLibrary: render error: %v", err)
 			http.Error(w, "render error", http.StatusInternalServerError)
 		}
 	}
@@ -340,10 +352,12 @@ func handleUpdateBook(store libraryStore) http.HandlerFunc {
 		}
 
 		if err := store.UpdateBookMetadata(r.Context(), bookID, title, authors, pubDate); err != nil {
+			log.Printf("handleUpdateBook: UpdateBookMetadata(%s) error: %v", bookID, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
 
+		log.Printf("handleUpdateBook: updated book %s in library %s", bookID, libraryID)
 		http.Redirect(w, r, "/library/"+libraryID, http.StatusSeeOther)
 	}
 }

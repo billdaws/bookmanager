@@ -1,7 +1,9 @@
 package scanner
 
 import (
+	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +21,7 @@ var bookExtensions = map[string]bool{
 
 // ScanDirectory returns the relative paths of book files under dir, recursing
 // into subdirectories and following symlinked directories. Symlink loops are
-// detected and skipped.
+// detected and skipped. Returns an error if any symlink cannot be resolved.
 func ScanDirectory(dir string) ([]string, error) {
 	real, err := filepath.EvalSymlinks(dir)
 	if err != nil {
@@ -45,14 +47,17 @@ func walkDir(dir, root string, visited map[string]bool, results *[]string) error
 		if entry.Type()&fs.ModeSymlink != 0 {
 			info, err := os.Stat(path)
 			if err != nil {
-				continue // broken symlink
+				log.Printf("scanner: broken symlink %s: %v", path, err)
+				return fmt.Errorf("broken symlink %s: %w", filepath.Base(path), err)
 			}
 			if info.IsDir() {
 				real, err := filepath.EvalSymlinks(path)
 				if err != nil {
-					continue
+					log.Printf("scanner: broken symlink %s: %v", path, err)
+					return fmt.Errorf("broken symlink %s: %w", filepath.Base(path), err)
 				}
 				if visited[real] {
+					log.Printf("scanner: skipping symlink loop at %s -> %s", path, real)
 					continue
 				}
 				visited[real] = true

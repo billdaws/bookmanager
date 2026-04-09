@@ -53,6 +53,7 @@ func (p *LibraryPoller) errorf(lib *storage.Library, err error) {
 }
 
 func (p *LibraryPoller) poll(ctx context.Context, lib *storage.Library) {
+	log.Printf("library poller: starting for %q (%s) every %s", lib.Name, lib.ID, p.interval)
 	books, err := p.store.ListBooks(ctx, lib.ID)
 	if err != nil {
 		p.errorf(lib, err)
