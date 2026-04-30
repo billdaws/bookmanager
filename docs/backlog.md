@@ -6,5 +6,3 @@
 
 ## Bugs
 
-- Sometimes the authors column is extracted as plural when it is singular
-  - e.g. Andy Weir - Project Hail Mary becomes Andy Weir; Project Hail Mary
