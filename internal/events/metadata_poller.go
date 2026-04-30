@@ -11,7 +11,7 @@ import (
 // metadataStore is the subset of db.Store methods used by MetadataPoller.
 type metadataStore interface {
 	ListLibraries(ctx context.Context) ([]storage.Library, error)
-	BackfillMetadata(ctx context.Context, libraryID, dir string) (bool, error)
+	BackfillMetadata(ctx context.Context, libraryID, dir string) (int, error)
 }
 
 // MetadataPoller runs periodic metadata backfill across all libraries.
@@ -74,16 +74,14 @@ func (p *MetadataPoller) runOnce(ctx context.Context) {
 	for _, lib := range libs {
 		log.Printf("metadata poller: backfilling %q (%s)", lib.Name, lib.Directory)
 		libStart := time.Now()
-		updated, err := p.store.BackfillMetadata(ctx, lib.ID, lib.Directory)
+		n, err := p.store.BackfillMetadata(ctx, lib.ID, lib.Directory)
 		if err != nil {
 			log.Printf("metadata poller: backfill %q: %v", lib.Name, err)
 			continue
 		}
-		if updated {
-			log.Printf("metadata poller: updated metadata for library %q in %s", lib.Name, time.Since(libStart).Round(time.Millisecond))
+		log.Printf("metadata poller: library %q: processed %d book(s) in %s", lib.Name, n, time.Since(libStart).Round(time.Millisecond))
+		if n > 0 {
 			p.bridge.Publish(TopicLibraryBooksChanged(lib.ID), nil)
-		} else {
-			log.Printf("metadata poller: library %q already up to date (%.0fs)", lib.Name, time.Since(libStart).Seconds())
 		}
 	}
 	log.Printf("metadata poller: pass complete in %s", time.Since(start).Round(time.Millisecond))

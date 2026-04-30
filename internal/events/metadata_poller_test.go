@@ -11,14 +11,14 @@ import (
 // mockMetadataStore implements metadataStore for testing.
 type mockMetadataStore struct {
 	libs     []storage.Library
-	backfill func(ctx context.Context, libraryID, dir string) (bool, error)
+	backfill func(ctx context.Context, libraryID, dir string) (int, error)
 }
 
 func (m *mockMetadataStore) ListLibraries(ctx context.Context) ([]storage.Library, error) {
 	return m.libs, nil
 }
 
-func (m *mockMetadataStore) BackfillMetadata(ctx context.Context, libraryID, dir string) (bool, error) {
+func (m *mockMetadataStore) BackfillMetadata(ctx context.Context, libraryID, dir string) (int, error) {
 	return m.backfill(ctx, libraryID, dir)
 }
 
@@ -30,8 +30,8 @@ func TestMetadataPoller_PublishesWhenUpdated(t *testing.T) {
 	lib := storage.Library{ID: "lib-1", Name: "Test", Directory: "/books"}
 	store := &mockMetadataStore{
 		libs: []storage.Library{lib},
-		backfill: func(_ context.Context, _ string, _ string) (bool, error) {
-			return true, nil // metadata was updated
+		backfill: func(_ context.Context, _ string, _ string) (int, error) {
+			return 1, nil // one book processed
 		},
 	}
 
@@ -60,8 +60,8 @@ func TestMetadataPoller_NoPublishWhenUnchanged(t *testing.T) {
 	lib := storage.Library{ID: "lib-1", Name: "Test", Directory: "/books"}
 	store := &mockMetadataStore{
 		libs: []storage.Library{lib},
-		backfill: func(_ context.Context, _ string, _ string) (bool, error) {
-			return false, nil // nothing changed
+		backfill: func(_ context.Context, _ string, _ string) (int, error) {
+			return 0, nil // nothing to process
 		},
 	}
 

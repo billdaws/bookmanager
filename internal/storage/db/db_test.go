@@ -3,8 +3,12 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/billdaws/epub"
 )
 
 func openTestStore(t *testing.T) *Store {
@@ -73,12 +77,12 @@ func TestBackfillMetadata_SkipsUpToDate(t *testing.T) {
 	}
 
 	// Second pass should find nothing to do.
-	updated, err := s.BackfillMetadata(context.Background(), id, dir)
+	n, err := s.BackfillMetadata(context.Background(), id, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated {
-		t.Error("BackfillMetadata returned true for up-to-date books")
+	if n != 0 {
+		t.Errorf("BackfillMetadata returned %d for up-to-date books, want 0", n)
 	}
 }
 
@@ -282,5 +286,44 @@ func TestBackfillMetadata_RespectsManualOverrides(t *testing.T) {
 	}
 	if updated[0].Title != "Locked Title" {
 		t.Errorf("title = %q, want %q (manual override should be preserved)", updated[0].Title, "Locked Title")
+	}
+}
+
+// TestNormalizeAuthors_TrailingSemicolon verifies that a dc:creator value with a
+// trailing semicolon (e.g. "Andy Weir;") is normalised to a single clean author.
+func TestNormalizeAuthors_TrailingSemicolon(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.epub")
+
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = epub.Write(f, epub.Book{
+		Metadata: epub.Metadata{
+			Title:      "Project Hail Mary",
+			Language:   "en",
+			Identifier: "urn:test:hailmary",
+			Authors:    []string{"Andy Weir;"},
+		},
+		Items: []epub.ContentItem{{
+			ID:        "ch1",
+			Href:      "ch1.xhtml",
+			MediaType: "application/xhtml+xml",
+			Content:   []byte(`<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body/></html>`),
+		}},
+		Spine: []string{"ch1"},
+	})
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	title, authors, _ := extractEpubMetadata(path)
+	if title != "Project Hail Mary" {
+		t.Errorf("title = %q, want %q", title, "Project Hail Mary")
+	}
+	if authors != "Andy Weir" {
+		t.Errorf("authors = %q, want %q", authors, "Andy Weir")
 	}
 }

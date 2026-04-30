@@ -308,12 +308,18 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 		data := libraryPageData{Library: lib, Query: r.URL.Query().Get("q")}
 
 		if err := storage.SyncLibrary(r.Context(), store, lib); err != nil {
+			if r.Context().Err() != nil {
+				return
+			}
 			log.Printf("handleLibrary: SyncLibrary(%s) error: %v", id, err)
 			data.SyncError = fmt.Sprintf("Could not sync library: %v", err)
 		}
 
 		books, err := store.ListBooks(r.Context(), id)
 		if err != nil {
+			if r.Context().Err() != nil {
+				return
+			}
 			log.Printf("handleLibrary: ListBooks(%s) error: %v", id, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return

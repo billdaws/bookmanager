@@ -250,8 +250,8 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 // BackfillMetadata re-extracts metadata for books in the library whose
 // metadata_sync record is missing or was produced with a different columns set
 // than the current one. Fields listed in manual_overrides are skipped.
-// It returns true if any book's metadata was updated.
-func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bool, error) {
+// It returns the number of books processed (0 if everything was already up to date).
+func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT b.id, b.filename, COALESCE(ms.manual_overrides, '{}')
 		FROM books b
@@ -261,7 +261,7 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bo
 		libraryID, currentColumnsKey,
 	)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	defer rows.Close()
 
@@ -270,15 +270,14 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bo
 	for rows.Next() {
 		var r bookRef
 		if err := rows.Scan(&r.id, &r.filename, &r.manualOverrides); err != nil {
-			return false, err
+			return 0, err
 		}
 		stale = append(stale, r)
 	}
 	if err := rows.Err(); err != nil {
-		return false, err
+		return 0, err
 	}
 
-	updated := false
 	for _, r := range stale {
 		var overrides map[string]bool
 		if err := json.Unmarshal([]byte(r.manualOverrides), &overrides); err != nil {
@@ -307,7 +306,7 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bo
 				"UPDATE books SET "+strings.Join(sets, ", ")+" WHERE id = ?",
 				args...,
 			); err != nil {
-				return false, fmt.Errorf("backfill metadata for %s: %w", r.filename, err)
+				return 0, fmt.Errorf("backfill metadata for %s: %w", r.filename, err)
 			}
 		}
 
@@ -320,14 +319,10 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (bo
 				manual_overrides  = manual_overrides`,
 			r.id, currentColumnsKey,
 		); err != nil {
-			return false, fmt.Errorf("update metadata_sync for %s: %w", r.filename, err)
-		}
-
-		if (!overrides["title"] && title != "") || (!overrides["authors"] && authors != "") {
-			updated = true
+			return 0, fmt.Errorf("update metadata_sync for %s: %w", r.filename, err)
 		}
 	}
-	return updated, nil
+	return len(stale), nil
 }
 
 // GetBook returns the book with the given ID belonging to libraryID, or nil if
@@ -562,7 +557,24 @@ func extractEpubMetadata(path string) (title, authors, publicationDate string) {
 		return
 	}
 	title = pkg.Metadata.Title
-	authors = strings.Join(pkg.Metadata.Authors, "; ")
+	authors = normalizeAuthors(pkg.Metadata.Authors)
 	publicationDate = pkg.Metadata.PublicationDate
 	return
+}
+
+// normalizeAuthors normalises dc:creator values and joins them with "; ".
+// Some epub tools pack multiple authors into a single dc:creator element
+// separated by semicolons, or leave a trailing semicolon on a single-author
+// value. This splits each entry on ";", trims whitespace, discards empty
+// parts, then joins the results.
+func normalizeAuthors(creators []string) string {
+	var parts []string
+	for _, c := range creators {
+		for part := range strings.SplitSeq(c, ";") {
+			if v := strings.TrimSpace(part); v != "" {
+				parts = append(parts, v)
+			}
+		}
+	}
+	return strings.Join(parts, "; ")
 }
