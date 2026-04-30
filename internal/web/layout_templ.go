@@ -42,7 +42,7 @@ func layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title></head><body class=\"min-h-screen bg-background text-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title></head><body class=\"min-h-screen bg-background text-foreground\"><nav class=\"border-b px-8 py-3 flex gap-10 text-sm\"><a href=\"/\" class=\"font-semibold hover:underline\">Libraries</a> <a href=\"/recipients\" class=\"hover:underline\">Recipients</a></nav>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

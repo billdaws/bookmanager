@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/billdaws/bookmanager/internal/email"
 	"github.com/billdaws/bookmanager/internal/events"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 	"github.com/billdaws/bookmanager/internal/web"
@@ -20,6 +21,9 @@ type config struct {
 	DBPath           string        `env:"BOOKMANAGER_DB" default:"bookmanager.db"`
 	SyncInterval     time.Duration `env:"BOOKMANAGER_SYNC_INTERVAL" default:"10s"`
 	MetadataInterval time.Duration `env:"BOOKMANAGER_METADATA_INTERVAL" default:"24h"`
+	ResendAPIKey     string        `env:"BOOKMANAGER_RESEND_API_KEY"`
+	FromEmail        string        `env:"BOOKMANAGER_FROM_EMAIL"`
+	EncryptionKey    string        `env:"BOOKMANAGER_ENCRYPTION_KEY"`
 }
 
 func main() {
@@ -35,6 +39,11 @@ func main() {
 	defer database.Close()
 
 	store := storage.NewStore(database)
+	if cfg.EncryptionKey != "" {
+		if err := store.SetEncryptionKey(cfg.EncryptionKey); err != nil {
+			log.Fatalf("encryption key: %v", err)
+		}
+	}
 
 	bridge := events.NewEventBridge(func(t events.Topic, name string, err error) {
 		log.Printf("event error [%s/%s]: %v", t, name, err)
@@ -58,8 +67,10 @@ func main() {
 		poller.Start(ctx, &lib)
 	}
 
+	emailSvc := email.NewResendSender(cfg.ResendAPIKey, cfg.FromEmail)
+
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, metadataPoller); err != nil {
+	if err := web.Register(mux, store, bridge, metadataPoller, emailSvc); err != nil {
 		log.Fatalf("web: %v", err)
 	}
 

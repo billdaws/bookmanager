@@ -1,4 +1,13 @@
-.PHONY: setup generate build-css test test-race test-e2e bench upgrade-htmx generate-diagrams
+.PHONY: setup generate build-css test test-race test-e2e bench upgrade-htmx generate-diagrams run run-dev edit-secrets
+
+edit-secrets:
+	sops secrets.sops.yaml
+
+run:
+	go build -o /tmp/bookmanager ./cmd/bookmanager && sops exec-env secrets.sops.yaml /tmp/bookmanager
+
+run-dev:
+	sops exec-env secrets.sops.yaml air
 
 setup:
 	git config core.hooksPath .githooks

@@ -34,9 +34,10 @@ func TestCreateLibrary(t *testing.T) {
 	page.MustElement("#directory").MustInput(dir)
 	page.MustElement(`button[type="submit"]`).MustClick()
 
-	// Wait for the library page: it has a "← All libraries" back-link that
-	// the setup page does not.
-	page.MustElement(`a[href="/"]`)
+	// Wait for the library page: #book-list only exists on the library page,
+	// not the setup form. (The nav's "Libraries" link is a[href="/"] on every
+	// page, so that selector is no longer a reliable wait condition.)
+	page.MustElement(`#book-list`)
 
 	if got := page.MustElement("h1").MustText(); got != "Test Library" {
 		t.Errorf("h1 = %q, want %q", got, "Test Library")
@@ -60,7 +61,7 @@ func TestDisplaysBooks(t *testing.T) {
 	page.MustElement("#name").MustInput("My Library")
 	page.MustElement("#directory").MustInput(dir)
 	page.MustElement(`button[type="submit"]`).MustClick()
-	page.MustElement(`a[href="/"]`) // wait for library page
+	page.MustElement(`#book-list`) // wait for library page
 
 	entries, err := os.ReadDir("testdata/raw")
 	if err != nil {
@@ -93,7 +94,7 @@ func TestPollerUpdatesBookList(t *testing.T) {
 	page.MustElement("#name").MustInput("Live Library")
 	page.MustElement("#directory").MustInput(dir)
 	page.MustElement(`button[type="submit"]`).MustClick()
-	page.MustElement(`a[href="/"]`) // wait for library page
+	page.MustElement(`#book-list`) // wait for library page
 
 	page.MustElementR("td", "No books found.")
 
@@ -130,7 +131,7 @@ func TestQueryFilter(t *testing.T) {
 	page.MustElement("#name").MustInput("Filter Library")
 	page.MustElement("#directory").MustInput(dir)
 	page.MustElement(`button[type="submit"]`).MustClick()
-	page.MustElement(`a[href="/"]`) // wait for library page
+	page.MustElement(`#book-list`) // wait for library page
 
 	// Extract the library ID from the delete link, since the HTMX form swap
 	// does not update the browser URL bar.
@@ -177,7 +178,7 @@ func TestEditBookMetadata(t *testing.T) {
 	page.MustElement("#name").MustInput("Edit Library")
 	page.MustElement("#directory").MustInput(dir)
 	page.MustElement(`button[type="submit"]`).MustClick()
-	page.MustElement(`a[href="/"]`) // wait for library page
+	page.MustElement(`#book-list`) // wait for library page
 
 	// Wait for the page to fully load (including module scripts) before using sheets.
 	page.MustWait(`() => document.readyState === "complete"`)
@@ -232,7 +233,7 @@ func TestDeleteLibrary(t *testing.T) {
 	page.MustElement("#name").MustInput("Doomed Library")
 	page.MustElement("#directory").MustInput(dir)
 	page.MustElement(`button[type="submit"]`).MustClick()
-	page.MustElement(`a[href="/"]`) // wait for library page
+	page.MustElement(`#book-list`) // wait for library page
 
 	// Open the settings dropdown, then click "Delete library" → navigates to the confirmation page.
 	page.MustElement(`details summary`).MustClick()

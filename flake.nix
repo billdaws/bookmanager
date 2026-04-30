@@ -40,6 +40,10 @@
             templ
             tailwindcss_4
 
+            # Secrets management
+            age
+            sops
+
             # Handy during development
             air          # live reload
             gnumake

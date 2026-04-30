@@ -1,0 +1,43 @@
+package web
+
+import (
+	"github.com/templui/templui/components/button"
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
+)
+
+type bookSendPageData struct {
+	LibraryID  string
+	Book       *storage.Book
+	Recipients []storage.Recipient
+}
+
+templ BookSendPage(data bookSendPageData) {
+	@layout("Bookmanager — Send Book") {
+		<main class="container mx-auto p-8 max-w-md">
+			<h1 class="text-2xl font-bold mb-2">Send book</h1>
+			<p class="text-muted-foreground mb-6">{ bookDisplayLabel(*data.Book) }</p>
+			if len(data.Recipients) == 0 {
+				<p class="text-muted-foreground mb-4">No recipients configured. <a href="/recipients/new" class="underline">Add one</a>.</p>
+			} else {
+				<form action={ templ.SafeURL("/library/" + data.LibraryID + "/book/" + data.Book.ID + "/send") } method="post" class="space-y-4">
+					<fieldset class="space-y-2">
+						<legend class="text-sm font-medium mb-2">Send to</legend>
+						for _, r := range data.Recipients {
+							<label class="flex items-center gap-2 cursor-pointer">
+								<input type="checkbox" name="recipient_id" value={ r.ID } class="rounded"/>
+								<span class="font-medium">{ r.Name }</span>
+								<span class="text-sm text-muted-foreground">{ r.Email }</span>
+							</label>
+						}
+					</fieldset>
+					@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+						Send
+					}
+				</form>
+			}
+			<div class="mt-4">
+				<a href={ templ.SafeURL("/library/" + data.LibraryID) } class="text-sm text-muted-foreground underline">Back to library</a>
+			</div>
+		</main>
+	}
+}

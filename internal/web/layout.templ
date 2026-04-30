@@ -10,6 +10,10 @@ templ layout(title string) {
 			<title>{ title }</title>
 		</head>
 		<body class="min-h-screen bg-background text-foreground">
+			<nav class="border-b px-8 py-3 flex gap-10 text-sm">
+				<a href="/" class="font-semibold hover:underline">Libraries</a>
+				<a href="/recipients" class="hover:underline">Recipients</a>
+			</nav>
 			{ children... }
 		</body>
 	</html>

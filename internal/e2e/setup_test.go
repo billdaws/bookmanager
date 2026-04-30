@@ -25,6 +25,13 @@ type noopPoller struct{}
 
 func (noopPoller) RunNow() {}
 
+type noopSender struct{}
+
+func (noopSender) SendBook(_ context.Context, _, _, _, _ string) error { return nil }
+
+// testEncryptionKey is a fixed 32-byte key used only in tests. It is not a secret.
+const testEncryptionKey = "0000000000000000000000000000000000000000000000000000000000000000"
+
 func TestMain(m *testing.M) {
 	bin := os.Getenv("CHROMIUM_BIN")
 	if bin == "" {
@@ -53,10 +60,13 @@ func newServer(t *testing.T) string {
 	t.Cleanup(func() { database.Close() })
 
 	store := storage.NewStore(database)
+	if err := store.SetEncryptionKey(testEncryptionKey); err != nil {
+		t.Fatalf("set encryption key: %v", err)
+	}
 	bridge := events.NewEventBridge(nil)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, noopPoller{}); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}, noopSender{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -90,6 +100,9 @@ func newServerWithPoller(t *testing.T, interval time.Duration) string {
 	t.Cleanup(func() { database.Close() })
 
 	store := storage.NewStore(database)
+	if err := store.SetEncryptionKey(testEncryptionKey); err != nil {
+		t.Fatalf("set encryption key: %v", err)
+	}
 	bridge := events.NewEventBridge(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -99,7 +112,7 @@ func newServerWithPoller(t *testing.T, interval time.Duration) string {
 	poller.Register(ctx)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, noopPoller{}); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}, noopSender{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -125,6 +138,9 @@ func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string
 	t.Cleanup(func() { database.Close() })
 
 	store := storage.NewStore(database)
+	if err := store.SetEncryptionKey(testEncryptionKey); err != nil {
+		t.Fatalf("set encryption key: %v", err)
+	}
 	bridge := events.NewEventBridge(nil)
 	ctx := context.Background()
 
@@ -158,7 +174,7 @@ func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string
 	metaPoller := events.NewMetadataPoller(store, bridge, 100*time.Millisecond)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, metaPoller); err != nil {
+	if err := web.Register(mux, store, bridge, metaPoller, noopSender{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 

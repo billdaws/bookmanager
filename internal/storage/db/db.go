@@ -50,7 +50,8 @@ type Book struct {
 // Store is the SQLite-backed data store. Callers that need to accept any
 // implementation should define their own interface at the point of use.
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	encKey []byte // AES-256-GCM key for encrypting recipient email addresses
 }
 
 // NewStore returns a Store backed by db.

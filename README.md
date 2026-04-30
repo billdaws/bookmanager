@@ -12,6 +12,7 @@ A self-hosted web application for managing a local digital book library. Point i
 - **Search and filter** — query DSL for filtering books by title, author, and more
 - **Real-time updates** — library view refreshes automatically via Server-Sent Events (SSE)
 - **Multiple libraries** — manage separate libraries, each pointing to its own directory
+- **Email delivery** — send books as email attachments to saved recipients, including Kindle addresses
 
 ## Installation
 
@@ -69,6 +70,64 @@ All configuration is via environment variables:
 | `BOOKMANAGER_TLS_ENABLED`       | `false`          | Enable TLS                                        |
 | `BOOKMANAGER_SYNC_INTERVAL`     | `10s`            | How often to poll library directories for changes |
 | `BOOKMANAGER_METADATA_INTERVAL` | `24h`            | How often to backfill missing metadata            |
+| `BOOKMANAGER_RESEND_API_KEY`    | —                | API key for email delivery (optional)             |
+| `BOOKMANAGER_FROM_EMAIL`        | —                | Sender address for outgoing emails                |
+| `BOOKMANAGER_ENCRYPTION_KEY`    | —                | Hex-encoded 32-byte key for encrypting stored recipient addresses (generate with `openssl rand -hex 32`) |
+
+## Email delivery
+
+Bookmanager can send books directly to email addresses — useful for delivering to a Kindle or sharing with others.
+
+### Setting up
+
+1. Obtain an API key from your email provider and a verified sender address.
+2. Set `BOOKMANAGER_RESEND_API_KEY` and `BOOKMANAGER_FROM_EMAIL` in your environment.
+3. Generate an encryption key and set `BOOKMANAGER_ENCRYPTION_KEY`:
+   ```bash
+   openssl rand -hex 32
+   ```
+
+For local development, the included SOPS/age workflow keeps these secrets out of the repository — see [Managing secrets](#managing-secrets) below.
+
+### Adding recipients
+
+Navigate to **Recipients** in the nav bar to add named email addresses. Kindle addresses work the same as any other recipient — just add your `@kindle.com` address.
+
+> **Kindle:** Amazon only accepts attachments from approved senders. Before sending to a Kindle address, add your `BOOKMANAGER_FROM_EMAIL` address to your [approved personal document email list](https://www.amazon.com/hz/mycd/preferences/myx#/home/settings/) in Amazon account settings.
+
+### Sending a book
+
+On any library page, click the send icon (→) on a book row. Select one or more recipients and click **Send**. The book file is attached and delivered immediately.
+
+### Privacy
+
+Recipient email addresses are encrypted at rest using AES-256-GCM with your `BOOKMANAGER_ENCRYPTION_KEY`. The key never leaves your server, and addresses are never stored in plaintext in the database.
+
+## Managing secrets
+
+For managing the API key, encryption key, and other sensitive values, Bookmanager supports [SOPS](https://github.com/getsops/sops) with [age](https://age-encryption.org/) encryption. This keeps secrets out of your shell history and environment files.
+
+### First-time setup
+
+```bash
+# Generate an age key pair
+age-keygen
+
+# Copy the example config and fill in your public key
+cp .sops.yaml.example .sops.yaml
+# edit .sops.yaml — replace the placeholder with your age public key
+
+# Create and edit your secrets file
+make edit-secrets
+# fill in values from secrets.sops.yaml.example
+```
+
+### Running with secrets loaded
+
+```bash
+make run        # build and run with secrets injected
+make run-dev    # run with live reload (air) and secrets injected
+```
 
 ## Development
 

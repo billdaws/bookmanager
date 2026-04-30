@@ -28,6 +28,10 @@ go.work.sum
 .env
 .direnv
 
+# Secrets and local SOPS config (not committed to the public repo)
+secrets.sops.yaml
+.sops.yaml
+
 # Build output
 bookmanager
 !cmd/bookmanager

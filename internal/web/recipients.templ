@@ -1,0 +1,96 @@
+package web
+
+import (
+	"github.com/templui/templui/components/alert"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/input"
+	"github.com/templui/templui/components/label"
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
+)
+
+type recipientNewPageData struct {
+	Error string
+	Name  string
+	Email string
+}
+
+templ RecipientsPage(recipients []storage.Recipient) {
+	@layout("Bookmanager — Recipients") {
+		<main class="container mx-auto p-8 max-w-2xl">
+			<div class="flex items-center justify-between mb-6">
+				<h1 class="text-2xl font-bold">Recipients</h1>
+				<a href="/recipients/new">
+					@button.Button() {
+						Add recipient
+					}
+				</a>
+			</div>
+			if len(recipients) == 0 {
+				<p class="text-muted-foreground">No recipients yet.</p>
+			} else {
+				<ul class="space-y-2">
+					for _, r := range recipients {
+						<li class="flex items-center justify-between p-3 rounded-lg border">
+							<div>
+								<span class="font-medium">{ r.Name }</span>
+								<span class="text-sm text-muted-foreground ml-2">{ r.Email }</span>
+							</div>
+							<form action={ templ.SafeURL("/recipients/" + r.ID + "/delete") } method="post">
+								@button.Button(button.Props{Variant: button.VariantDestructive, Size: button.SizeSm, Type: button.TypeSubmit}) {
+									Delete
+								}
+							</form>
+						</li>
+					}
+				</ul>
+			}
+		</main>
+	}
+}
+
+templ RecipientNewPage(data recipientNewPageData) {
+	@layout("Bookmanager — Add Recipient") {
+		<main class="container mx-auto p-8 max-w-md">
+			<h1 class="text-2xl font-bold mb-6">Add recipient</h1>
+			if data.Error != "" {
+				<div class="mb-4">
+					@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+						@alert.Description() {
+							{ data.Error }
+						}
+					}
+				</div>
+			}
+			<form action="/recipients" method="post" class="space-y-4">
+				<div class="space-y-1">
+					@label.Label(label.Props{For: "name"}) {
+						Name
+					}
+					@input.Input(input.Props{
+						ID:       "name",
+						Name:     "name",
+						Type:     input.TypeText,
+						Required: true,
+						Value:    data.Name,
+					})
+				</div>
+				<div class="space-y-1">
+					@label.Label(label.Props{For: "email"}) {
+						Email address
+					}
+					@input.Input(input.Props{
+						ID:       "email",
+						Name:     "email",
+						Type:     input.TypeEmail,
+						Required: true,
+						Value:    data.Email,
+					})
+				</div>
+				@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+					Save recipient
+				}
+			</form>
+			@label.Script()
+		</main>
+	}
+}

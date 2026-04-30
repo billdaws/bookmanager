@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -11,6 +12,11 @@ import (
 	"github.com/templui/templui/utils"
 )
 
+// emailSender sends a book file as an email attachment.
+type emailSender interface {
+	SendBook(ctx context.Context, toEmail, toName, bookTitle, bookPath string) error
+}
+
 //go:embed static
 var staticFS embed.FS
 
@@ -19,8 +25,15 @@ type metadataPoller interface {
 	RunNow()
 }
 
+// allStores is the full set of storage methods used across all web handlers.
+type allStores interface {
+	libraryStore
+	recipientStore
+	sendStore
+}
+
 // Register wires up all routes on mux.
-func Register(mux *http.ServeMux, store libraryStore, bridge *events.EventBridge, poller metadataPoller) error {
+func Register(mux *http.ServeMux, store allStores, bridge *events.EventBridge, poller metadataPoller, sender emailSender) error {
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		return fmt.Errorf("static fs: %w", err)
@@ -36,6 +49,12 @@ func Register(mux *http.ServeMux, store libraryStore, bridge *events.EventBridge
 	mux.HandleFunc("GET /library/{id}/delete", handleLibraryDeleteConfirm(store))
 	mux.HandleFunc("POST /library/{id}/delete", handleLibraryDelete(store))
 	mux.HandleFunc("POST /library/{id}/book/{bookID}", handleUpdateBook(store))
+	mux.HandleFunc("GET /library/{id}/book/{bookID}/send", handleBookSendPage(store))
+	mux.HandleFunc("POST /library/{id}/book/{bookID}/send", handleBookSend(store, sender))
+	mux.HandleFunc("GET /recipients", handleRecipients(store))
+	mux.HandleFunc("GET /recipients/new", handleRecipientNew())
+	mux.HandleFunc("POST /recipients", handleCreateRecipient(store))
+	mux.HandleFunc("POST /recipients/{id}/delete", handleDeleteRecipient(store))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticSub)))
 	return nil
 }
