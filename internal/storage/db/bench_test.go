@@ -215,6 +215,60 @@ func BenchmarkBackfillMetadata(b *testing.B) {
 	}
 }
 
+// BenchmarkBackfillMetadata_BatchSize holds the book count fixed and sweeps
+// the batch size so you can read the speedup curve from a single run:
+//
+//	go test -bench=BenchmarkBackfillMetadata_BatchSize -benchtime=5s ./internal/storage/db/
+//
+// batch=1 is fully serial; batch=N is N goroutines extracting metadata in
+// parallel before the sequential DB write phase.
+func BenchmarkBackfillMetadata_BatchSize(b *testing.B) {
+	src := epubFixture(b)
+	ctx := context.Background()
+	const bookCount = 100
+
+	dir := b.TempDir()
+	filenames := make([]string, bookCount)
+	for i := range bookCount {
+		fn := fmt.Sprintf("book-%04d.epub", i)
+		if err := os.Symlink(src, filepath.Join(dir, fn)); err != nil {
+			b.Fatalf("symlink: %v", err)
+		}
+		filenames[i] = fn
+	}
+
+	for _, batchSize := range []int{1, 2, 5, 10, 25, 50, 100} {
+		b.Run(fmt.Sprintf("batch_%03d", batchSize), func(b *testing.B) {
+			database, err := OpenDB(":memory:")
+			if err != nil {
+				b.Fatalf("open db: %v", err)
+			}
+			b.Cleanup(func() { database.Close() })
+			store := NewStore(database)
+			store.SetMetadataBatchSize(batchSize)
+
+			id, err := store.CreateLibraryWithBooks(ctx, "Bench", dir, filenames)
+			if err != nil {
+				b.Fatalf("seed library: %v", err)
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for b.Loop() {
+				b.StopTimer()
+				if _, err := database.ExecContext(ctx, "DELETE FROM metadata_sync"); err != nil {
+					b.Fatalf("clear metadata_sync: %v", err)
+				}
+				b.StartTimer()
+
+				if _, err := store.BackfillMetadata(ctx, id, dir); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkListBooks_Concurrent measures ListBooks under parallel read load,
 // which exercises SQLite's WAL-mode concurrent reader behaviour.
 func BenchmarkListBooks_Concurrent(b *testing.B) {

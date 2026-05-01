@@ -289,6 +289,64 @@ func TestBackfillMetadata_RespectsManualOverrides(t *testing.T) {
 	}
 }
 
+// TestBackfillMetadata_SkipsFailingBook verifies that if one book's write fails,
+// the remaining books in the same pass are still committed.
+func TestBackfillMetadata_SkipsFailingBook(t *testing.T) {
+	s := openTestStore(t)
+	dir := t.TempDir()
+
+	id, err := s.CreateLibraryWithBooks(context.Background(), "Lib", dir, []string{"a.epub", "b.epub", "c.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	books, err := s.ListBooks(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Find the book with filename b.epub and install a trigger that raises an
+	// error whenever that specific book is updated, simulating a write failure.
+	var badID string
+	for _, b := range books {
+		if b.Filename == "b.epub" {
+			badID = b.ID
+		}
+	}
+	if badID == "" {
+		t.Fatal("could not find b.epub in books")
+	}
+	if _, err := s.db.ExecContext(context.Background(), `
+		CREATE TRIGGER fail_one_book BEFORE UPDATE ON books
+		WHEN OLD.id = '`+badID+`'
+		BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.BackfillMetadata(context.Background(), id, dir)
+	if err != nil {
+		t.Fatalf("BackfillMetadata returned error: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("BackfillMetadata processed %d books, want 2 (one skipped)", n)
+	}
+
+	// The two good books should have sync rows; the failing one should not.
+	for _, b := range books {
+		got := metadataSyncColumns(t, s, b.ID)
+		if b.ID == badID {
+			if got != "" {
+				t.Errorf("book %s: expected no sync row after failure, got %q", b.Filename, got)
+			}
+		} else {
+			if got != currentColumnsKey {
+				t.Errorf("book %s: columns_attempted = %q, want %q", b.Filename, got, currentColumnsKey)
+			}
+		}
+	}
+}
+
 // TestNormalizeAuthors_TrailingSemicolon verifies that a dc:creator value with a
 // trailing semicolon (e.g. "Andy Weir;") is normalised to a single clean author.
 func TestNormalizeAuthors_TrailingSemicolon(t *testing.T) {

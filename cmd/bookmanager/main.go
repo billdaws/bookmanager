@@ -15,15 +15,16 @@ import (
 )
 
 type config struct {
-	Port             string        `env:"BOOKMANAGER_PORT" default:"47832"`
-	Host             string        `env:"BOOKMANAGER_HOST" default:"localhost"`
-	TLSEnabled       bool          `env:"BOOKMANAGER_TLS_ENABLED" default:"false"`
-	DBPath           string        `env:"BOOKMANAGER_DB" default:"bookmanager.db"`
-	SyncInterval     time.Duration `env:"BOOKMANAGER_SYNC_INTERVAL" default:"10s"`
-	MetadataInterval time.Duration `env:"BOOKMANAGER_METADATA_INTERVAL" default:"24h"`
-	ResendAPIKey     string        `env:"BOOKMANAGER_RESEND_API_KEY"`
-	FromEmail        string        `env:"BOOKMANAGER_FROM_EMAIL"`
-	EncryptionKey    string        `env:"BOOKMANAGER_ENCRYPTION_KEY"`
+	Port              string        `env:"BOOKMANAGER_PORT" default:"47832"`
+	Host              string        `env:"BOOKMANAGER_HOST" default:"localhost"`
+	TLSEnabled        bool          `env:"BOOKMANAGER_TLS_ENABLED" default:"false"`
+	DBPath            string        `env:"BOOKMANAGER_DB" default:"bookmanager.db"`
+	SyncInterval      time.Duration `env:"BOOKMANAGER_SYNC_INTERVAL" default:"10s"`
+	MetadataInterval  time.Duration `env:"BOOKMANAGER_METADATA_INTERVAL" default:"24h"`
+	MetadataBatchSize int           `env:"BOOKMANAGER_METADATA_BATCH_SIZE" default:"25"`
+	ResendAPIKey      string        `env:"BOOKMANAGER_RESEND_API_KEY"`
+	FromEmail         string        `env:"BOOKMANAGER_FROM_EMAIL"`
+	EncryptionKey     string        `env:"BOOKMANAGER_ENCRYPTION_KEY"`
 }
 
 func main() {
@@ -39,6 +40,7 @@ func main() {
 	defer database.Close()
 
 	store := storage.NewStore(database)
+	store.SetMetadataBatchSize(cfg.MetadataBatchSize)
 	if cfg.EncryptionKey != "" {
 		if err := store.SetEncryptionKey(cfg.EncryptionKey); err != nil {
 			log.Fatalf("encryption key: %v", err)

@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/billdaws/bookmanager/internal/scanner"
 	"github.com/billdaws/epub"
@@ -52,13 +53,22 @@ type Book struct {
 // Store is the SQLite-backed data store. Callers that need to accept any
 // implementation should define their own interface at the point of use.
 type Store struct {
-	db     *sql.DB
-	encKey []byte // AES-256-GCM key for encrypting recipient email addresses
+	db                *sql.DB
+	encKey            []byte // AES-256-GCM key for encrypting recipient email addresses
+	metadataBatchSize int
 }
 
 // NewStore returns a Store backed by db.
 func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+	return &Store{db: db, metadataBatchSize: 25}
+}
+
+// SetMetadataBatchSize sets how many books are processed in parallel during
+// metadata backfill. Values less than 1 are ignored.
+func (s *Store) SetMetadataBatchSize(n int) {
+	if n > 0 {
+		s.metadataBatchSize = n
+	}
 }
 
 // extractableColumns is derived from Book fields tagged `metadata:"sync"`.
@@ -281,57 +291,113 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (in
 		return 0, err
 	}
 
-	for i, r := range stale {
-		log.Printf("metadata backfill: [%d/%d] %s", i+1, len(stale), r.filename)
-
-		var overrides map[string]bool
-		if err := json.Unmarshal([]byte(r.manualOverrides), &overrides); err != nil {
-			overrides = map[string]bool{}
-		}
-
-		title, authors, pubDate, coverPath := extractMetadata(filepath.Join(dir, r.filename))
-
-		var sets []string
-		var args []any
-		if !overrides["title"] {
-			sets = append(sets, "title = ?")
-			args = append(args, nilIfEmpty(title))
-		}
-		if !overrides["authors"] {
-			sets = append(sets, "authors = ?")
-			args = append(args, nilIfEmpty(authors))
-		}
-		if !overrides["publication_date"] {
-			sets = append(sets, "publication_date = ?")
-			args = append(args, nilIfEmpty(pubDate))
-		}
-		if !overrides["cover_path"] {
-			sets = append(sets, "cover_path = ?")
-			args = append(args, nilIfEmpty(coverPath))
-		}
-		if len(sets) > 0 {
-			args = append(args, r.id)
-			if _, err := s.db.ExecContext(ctx,
-				"UPDATE books SET "+strings.Join(sets, ", ")+" WHERE id = ?",
-				args...,
-			); err != nil {
-				return 0, fmt.Errorf("backfill metadata for %s: %w", r.filename, err)
-			}
-		}
-
-		if _, err := s.db.ExecContext(ctx, `
-			INSERT INTO metadata_sync (book_id, columns_attempted, manual_overrides)
-			VALUES (?, ?, '{}')
-			ON CONFLICT(book_id) DO UPDATE SET
-				columns_attempted = excluded.columns_attempted,
-				attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
-				manual_overrides  = manual_overrides`,
-			r.id, currentColumnsKey,
-		); err != nil {
-			return 0, fmt.Errorf("update metadata_sync for %s: %w", r.filename, err)
-		}
+	type extractedBook struct {
+		bookRef
+		title, authors, pubDate, coverPath string
+		overrides                          map[string]bool
 	}
-	return len(stale), nil
+
+	// Extract metadata for all stale books in parallel, bounded by metadataBatchSize.
+	// A semaphore keeps the pipeline full without the idle time at batch boundaries.
+	results := make([]extractedBook, len(stale))
+	sem := make(chan struct{}, s.metadataBatchSize)
+	var wg sync.WaitGroup
+	for i, r := range stale {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, r bookRef) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			log.Printf("metadata backfill: [%d/%d] %s", i+1, len(stale), r.filename)
+			var overrides map[string]bool
+			if err := json.Unmarshal([]byte(r.manualOverrides), &overrides); err != nil {
+				overrides = map[string]bool{}
+			}
+			title, authors, pubDate, coverPath := extractMetadata(filepath.Join(dir, r.filename))
+			results[i] = extractedBook{r, title, authors, pubDate, coverPath, overrides}
+		}(i, r)
+	}
+	wg.Wait()
+
+	// Write all results in a single transaction to avoid per-row WAL commit
+	// overhead. Each book is wrapped in a savepoint so a failing write skips
+	// that book without rolling back the rest.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin backfill transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	written := 0
+	for i, res := range results {
+		sp := fmt.Sprintf("backfill_%d", i)
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT "+sp); err != nil {
+			return 0, fmt.Errorf("savepoint for %s: %w", res.filename, err)
+		}
+
+		writeErr := func() error {
+			var sets []string
+			var args []any
+			if !res.overrides["title"] {
+				sets = append(sets, "title = ?")
+				args = append(args, nilIfEmpty(res.title))
+			}
+			if !res.overrides["authors"] {
+				sets = append(sets, "authors = ?")
+				args = append(args, nilIfEmpty(res.authors))
+			}
+			if !res.overrides["publication_date"] {
+				sets = append(sets, "publication_date = ?")
+				args = append(args, nilIfEmpty(res.pubDate))
+			}
+			if !res.overrides["cover_path"] {
+				sets = append(sets, "cover_path = ?")
+				args = append(args, nilIfEmpty(res.coverPath))
+			}
+			if len(sets) > 0 {
+				args = append(args, res.id)
+				if _, err := tx.ExecContext(ctx,
+					"UPDATE books SET "+strings.Join(sets, ", ")+" WHERE id = ?",
+					args...,
+				); err != nil {
+					return fmt.Errorf("update books: %w", err)
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO metadata_sync (book_id, columns_attempted, manual_overrides)
+				VALUES (?, ?, '{}')
+				ON CONFLICT(book_id) DO UPDATE SET
+					columns_attempted = excluded.columns_attempted,
+					attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+					manual_overrides  = manual_overrides`,
+				res.id, currentColumnsKey,
+			); err != nil {
+				return fmt.Errorf("update metadata_sync: %w", err)
+			}
+			return nil
+		}()
+
+		if writeErr != nil {
+			log.Printf("metadata backfill: skipping %s: %v", res.filename, writeErr)
+			if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+sp); err != nil {
+				return 0, fmt.Errorf("rollback savepoint for %s: %w", res.filename, err)
+			}
+			if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+sp); err != nil {
+				return 0, fmt.Errorf("release savepoint for %s: %w", res.filename, err)
+			}
+			continue
+		}
+
+		if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+sp); err != nil {
+			return 0, fmt.Errorf("release savepoint for %s: %w", res.filename, err)
+		}
+		written++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit metadata backfill: %w", err)
+	}
+	return written, nil
 }
 
 // GetBook returns the book with the given ID belonging to libraryID, or nil if
