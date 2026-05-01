@@ -328,6 +328,18 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (in
 	}
 	defer tx.Rollback()
 
+	upsertStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO metadata_sync (book_id, columns_attempted, manual_overrides)
+		VALUES (?, ?, '{}')
+		ON CONFLICT(book_id) DO UPDATE SET
+			columns_attempted = excluded.columns_attempted,
+			attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+			manual_overrides  = manual_overrides`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare metadata_sync upsert: %w", err)
+	}
+	defer upsertStmt.Close()
+
 	written := 0
 	for i, res := range results {
 		sp := fmt.Sprintf("backfill_%d", i)
@@ -363,15 +375,7 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (in
 					return fmt.Errorf("update books: %w", err)
 				}
 			}
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO metadata_sync (book_id, columns_attempted, manual_overrides)
-				VALUES (?, ?, '{}')
-				ON CONFLICT(book_id) DO UPDATE SET
-					columns_attempted = excluded.columns_attempted,
-					attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
-					manual_overrides  = manual_overrides`,
-				res.id, currentColumnsKey,
-			); err != nil {
+			if _, err := upsertStmt.ExecContext(ctx, res.id, currentColumnsKey); err != nil {
 				return fmt.Errorf("update metadata_sync: %w", err)
 			}
 			return nil
