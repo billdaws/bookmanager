@@ -23,7 +23,8 @@ var browser *rod.Browser
 
 type noopPoller struct{}
 
-func (noopPoller) RunNow() {}
+func (noopPoller) RunNow()                                      {}
+func (noopPoller) Status() (running bool, completed, total int) { return false, 0, 0 }
 
 type noopSender struct{}
 
@@ -155,7 +156,7 @@ func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string
 
 	// Run an initial backfill to stamp metadata_sync rows, then mark them stale
 	// and clear extracted fields to simulate books whose columns key is outdated.
-	if _, err := store.BackfillMetadata(ctx, libID, dir); err != nil {
+	if _, err := store.BackfillMetadata(ctx, libID, dir, nil); err != nil {
 		t.Fatalf("initial backfill: %v", err)
 	}
 	if _, err := database.ExecContext(ctx,

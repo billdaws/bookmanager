@@ -12,14 +12,19 @@ import (
 type mockMetadataStore struct {
 	libs     []storage.Library
 	backfill func(ctx context.Context, libraryID, dir string) (int, error)
+	total    int
 }
 
 func (m *mockMetadataStore) ListLibraries(ctx context.Context) ([]storage.Library, error) {
 	return m.libs, nil
 }
 
-func (m *mockMetadataStore) BackfillMetadata(ctx context.Context, libraryID, dir string) (int, error) {
+func (m *mockMetadataStore) BackfillMetadata(ctx context.Context, libraryID, dir string, onExtracted func()) (int, error) {
 	return m.backfill(ctx, libraryID, dir)
+}
+
+func (m *mockMetadataStore) CountBooksNeedingMetadata(ctx context.Context) (int, error) {
+	return m.total, nil
 }
 
 // TestMetadataPoller_PublishesWhenUpdated verifies that a TopicLibraryBooksChanged
@@ -29,7 +34,8 @@ func TestMetadataPoller_PublishesWhenUpdated(t *testing.T) {
 
 	lib := storage.Library{ID: "lib-1", Name: "Test", Directory: "/books"}
 	store := &mockMetadataStore{
-		libs: []storage.Library{lib},
+		libs:  []storage.Library{lib},
+		total: 1,
 		backfill: func(_ context.Context, _ string, _ string) (int, error) {
 			return 1, nil // one book processed
 		},

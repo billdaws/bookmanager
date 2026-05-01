@@ -260,11 +260,28 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 	return books, rows.Err()
 }
 
+// CountBooksNeedingMetadata returns the total number of books across all libraries
+// whose metadata_sync record is missing or stale.
+func (s *Store) CountBooksNeedingMetadata(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM books b
+		LEFT JOIN metadata_sync ms ON ms.book_id = b.id
+		WHERE ms.book_id IS NULL OR ms.columns_attempted != ?`,
+		currentColumnsKey,
+	).Scan(&n)
+	return n, err
+}
+
 // BackfillMetadata re-extracts metadata for books in the library whose
 // metadata_sync record is missing or was produced with a different columns set
 // than the current one. Fields listed in manual_overrides are skipped.
 // It returns the number of books processed (0 if everything was already up to date).
-func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (int, error) {
+// onExtracted, if non-nil, is called once per book immediately after its metadata
+// is extracted (before the final write transaction), allowing callers to track
+// extraction progress in real time.
+func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string, onExtracted func()) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT b.id, b.filename, COALESCE(ms.manual_overrides, '{}')
 		FROM books b
@@ -315,6 +332,9 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (in
 			}
 			title, authors, pubDate, coverPath := extractMetadata(filepath.Join(dir, r.filename))
 			results[i] = extractedBook{r, title, authors, pubDate, coverPath, overrides}
+			if onExtracted != nil {
+				onExtracted()
+			}
 		}(i, r)
 	}
 	wg.Wait()

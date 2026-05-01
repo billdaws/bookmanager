@@ -17,7 +17,8 @@ import (
 
 type noopPoller struct{}
 
-func (noopPoller) RunNow() {}
+func (noopPoller) RunNow()                                      {}
+func (noopPoller) Status() (running bool, completed, total int) { return false, 0, 0 }
 
 func setupTestStore(t *testing.T) *storage.Store {
 	t.Helper()

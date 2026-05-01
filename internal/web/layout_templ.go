@@ -8,6 +8,39 @@ package web
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+func jobStatusScript() templ.ComponentScript {
+	return templ.ComponentScript{
+		Name: `__templ_jobStatusScript_6a8f`,
+		Function: `function __templ_jobStatusScript_6a8f(){(function() {
+		var source = new EventSource("/events");
+		source.addEventListener("job-status", function(e) {
+			var data = JSON.parse(e.data);
+			var indicator = document.getElementById("job-indicator");
+			if (!indicator) return;
+			if (data.running) {
+				var completedSpan = document.getElementById("job-completed");
+				if (!completedSpan && data.total > 0) {
+					var label = document.getElementById("job-label");
+					label.innerHTML =
+						"Extracting metadata (<span id=\"job-completed\" style=\"display:inline-block;text-align:right;font-variant-numeric:tabular-nums\"></span>/" + data.total + ")";
+					completedSpan = document.getElementById("job-completed");
+					completedSpan.textContent = String(data.total);
+					indicator.classList.remove("hidden");
+					completedSpan.style.minWidth = completedSpan.offsetWidth + "px";
+				}
+				if (completedSpan) completedSpan.textContent = String(data.completed);
+				indicator.classList.remove("hidden");
+			} else {
+				indicator.classList.add("hidden");
+			}
+		});
+	})();
+}`,
+		Call:       templ.SafeScript(`__templ_jobStatusScript_6a8f`),
+		CallInline: templ.SafeScriptInline(`__templ_jobStatusScript_6a8f`),
+	}
+}
+
 func layout(title string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -36,17 +69,21 @@ func layout(title string) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/layout.templ`, Line: 10, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/layout.templ`, Line: 37, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title></head><body class=\"min-h-screen bg-background text-foreground\"><nav class=\"border-b px-8 py-3 flex gap-10 text-sm\"><a href=\"/\" class=\"font-semibold hover:underline\">Libraries</a> <a href=\"/recipients\" class=\"hover:underline\">Recipients</a></nav>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title></head><body class=\"min-h-screen bg-background text-foreground\"><nav class=\"relative border-b px-8 py-3 flex items-center gap-10 text-sm\"><a href=\"/\" class=\"font-semibold hover:underline\">Libraries</a> <a href=\"/recipients\" class=\"hover:underline\">Recipients</a> <span id=\"job-indicator\" class=\"hidden absolute flex items-center gap-2 text-muted-foreground\" style=\"right: 2rem; top: 50%; transform: translateY(-50%);\"><span id=\"job-label\"></span> <svg class=\"animate-spin h-3.5 w-3.5\" xmlns=\"http://www.w3.org/2000/svg\" fill=\"none\" viewBox=\"0 0 24 24\"><circle class=\"opacity-25\" cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"4\"></circle> <path class=\"opacity-75\" fill=\"currentColor\" d=\"M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z\"></path></svg></span></nav>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = templ_7745c5c3_Var1.Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = jobStatusScript().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -72,12 +72,12 @@ func TestBackfillMetadata_SkipsUpToDate(t *testing.T) {
 	}
 
 	// First pass stamps the metadata_sync row.
-	if _, err := s.BackfillMetadata(context.Background(), id, dir); err != nil {
+	if _, err := s.BackfillMetadata(context.Background(), id, dir, nil); err != nil {
 		t.Fatal(err)
 	}
 
 	// Second pass should find nothing to do.
-	n, err := s.BackfillMetadata(context.Background(), id, dir)
+	n, err := s.BackfillMetadata(context.Background(), id, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestBackfillMetadata_ReprocessesStaleColumns(t *testing.T) {
 	// Run an initial backfill to stamp the sync row, then simulate a stale
 	// columns key by dropping the last column as if a new metadata field was
 	// added since this book was last processed.
-	if _, err := s.BackfillMetadata(context.Background(), id, dir); err != nil {
+	if _, err := s.BackfillMetadata(context.Background(), id, dir, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,7 +123,7 @@ func TestBackfillMetadata_ReprocessesStaleColumns(t *testing.T) {
 		t.Fatalf("setup failed: columns_attempted = %q, want %q", got, oldKey)
 	}
 
-	_, err = s.BackfillMetadata(context.Background(), id, dir)
+	_, err = s.BackfillMetadata(context.Background(), id, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestBackfillMetadata_NoPriorSyncRow(t *testing.T) {
 		t.Fatalf("setup failed: expected no metadata_sync row, got %q", got)
 	}
 
-	_, err = s.BackfillMetadata(context.Background(), id, dir)
+	_, err = s.BackfillMetadata(context.Background(), id, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestBackfillMetadata_RespectsManualOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.BackfillMetadata(context.Background(), libID, dir); err != nil {
+	if _, err := s.BackfillMetadata(context.Background(), libID, dir, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -324,7 +324,7 @@ func TestBackfillMetadata_SkipsFailingBook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	n, err := s.BackfillMetadata(context.Background(), id, dir)
+	n, err := s.BackfillMetadata(context.Background(), id, dir, nil)
 	if err != nil {
 		t.Fatalf("BackfillMetadata returned error: %v", err)
 	}

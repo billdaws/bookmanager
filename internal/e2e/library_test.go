@@ -23,6 +23,9 @@ func TestCreateLibrary(t *testing.T) {
 	page.MustNavigate(base + "/")
 	page.MustElementR("p", "No libraries yet")
 
+	// The job indicator must not be visible when no background job is running.
+	page.MustWait(`() => document.getElementById("job-indicator").classList.contains("hidden")`)
+
 	// Click "Add library" → navigates to /library/new.
 	wait := page.MustWaitNavigation()
 	page.MustElement(`a[href="/library/new"]`).MustClick()
@@ -283,4 +286,7 @@ func TestMetadataBackfill(t *testing.T) {
 		`() => !document.querySelector('#book-list').textContent.includes(%q)`,
 		files[0],
 	))
+
+	// The indicator must be hidden again once the job has finished.
+	page.MustWait(`() => document.getElementById("job-indicator").classList.contains("hidden")`)
 }

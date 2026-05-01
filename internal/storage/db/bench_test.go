@@ -206,7 +206,7 @@ func BenchmarkBackfillMetadata(b *testing.B) {
 				}
 				b.StartTimer()
 
-				if _, err := store.BackfillMetadata(ctx, id, dir); err != nil {
+				if _, err := store.BackfillMetadata(ctx, id, dir, nil); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -261,7 +261,7 @@ func BenchmarkBackfillMetadata_BatchSize(b *testing.B) {
 				}
 				b.StartTimer()
 
-				if _, err := store.BackfillMetadata(ctx, id, dir); err != nil {
+				if _, err := store.BackfillMetadata(ctx, id, dir, nil); err != nil {
 					b.Fatal(err)
 				}
 			}
