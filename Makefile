@@ -1,4 +1,9 @@
-.PHONY: setup generate build-css test test-race test-e2e bench upgrade-htmx generate-diagrams run run-dev edit-secrets
+.PHONY: setup generate build-css test test-race test-e2e bench upgrade-htmx generate-diagrams run run-dev edit-secrets reset-metadata-sync
+
+DB ?= bookmanager.db
+
+reset-metadata-sync:
+	sqlite3 $(DB) "UPDATE metadata_sync SET columns_attempted = '';"
 
 edit-secrets:
 	sops secrets.sops.yaml

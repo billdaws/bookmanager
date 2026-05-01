@@ -319,7 +319,7 @@ func TestNormalizeAuthors_TrailingSemicolon(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	title, authors, _ := extractEpubMetadata(path)
+	title, authors, _, _ := extractEpubMetadata(path)
 	if title != "Project Hail Mary" {
 		t.Errorf("title = %q, want %q", title, "Project Hail Mary")
 	}

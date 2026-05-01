@@ -73,9 +73,9 @@ func TestDisplaysBooks(t *testing.T) {
 			wantRows++
 		}
 	}
-	rows := page.MustElements("#book-list tbody tr")
-	if got := len(rows); got != wantRows {
-		t.Errorf("got %d book rows, want %d", got, wantRows)
+	cards := page.MustElements("#book-list [data-book-id]")
+	if got := len(cards); got != wantRows {
+		t.Errorf("got %d book cards, want %d", got, wantRows)
 	}
 }
 
@@ -96,7 +96,7 @@ func TestPollerUpdatesBookList(t *testing.T) {
 	page.MustElement(`button[type="submit"]`).MustClick()
 	page.MustElement(`#book-list`) // wait for library page
 
-	page.MustElementR("td", "No books found.")
+	page.MustElementR("p", "No books found.")
 
 	// Add a book — the poller picks it up and pushes an SSE update.
 	src, err := filepath.Abs("testdata/raw/yellow-wallpaper.epub")
@@ -114,7 +114,7 @@ func TestPollerUpdatesBookList(t *testing.T) {
 	if err := os.Remove(dst); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	page.MustElementR("td", "No books found.")
+	page.MustElementR("p", "No books found.")
 }
 
 // TestQueryFilter creates a library with books and verifies that the search
@@ -146,9 +146,9 @@ func TestQueryFilter(t *testing.T) {
 	page.MustNavigate(base + "/library/" + libID + "?q=filename:yellow-wallpaper")
 	page.MustElement("#book-list") // wait for render
 
-	rows := page.MustElements("#book-list tbody tr")
-	if got := len(rows); got != 1 {
-		t.Errorf("got %d rows, want 1", got)
+	cards := page.MustElements("#book-list [data-book-id]")
+	if got := len(cards); got != 1 {
+		t.Errorf("got %d book cards, want 1", got)
 	}
 
 	// An invalid query shows all books and an error message.
@@ -159,9 +159,9 @@ func TestQueryFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read testdata/raw: %v", err)
 	}
-	rows = page.MustElements("#book-list tbody tr")
-	if got, want := len(rows), len(entries); got != want {
-		t.Errorf("got %d rows on error query, want %d (all books)", got, want)
+	cards = page.MustElements("#book-list [data-book-id]")
+	if got, want := len(cards), len(entries); got != want {
+		t.Errorf("got %d book cards on error query, want %d (all books)", got, want)
 	}
 }
 
@@ -270,7 +270,7 @@ func TestMetadataBackfill(t *testing.T) {
 	// Navigate to the library page. Books have cleared metadata, so they render
 	// as filenames only.
 	page.MustNavigate(base + "/library/" + libID)
-	page.MustElementR("td", files[0])
+	page.MustElementR("#book-list", files[0])
 
 	// Start the metadata poller now that the stale state is confirmed in the
 	// browser. It will detect the stale key, re-extract metadata, and push an

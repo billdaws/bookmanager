@@ -49,6 +49,7 @@ func Register(mux *http.ServeMux, store allStores, bridge *events.EventBridge, p
 	mux.HandleFunc("GET /library/{id}/delete", handleLibraryDeleteConfirm(store))
 	mux.HandleFunc("POST /library/{id}/delete", handleLibraryDelete(store))
 	mux.HandleFunc("POST /library/{id}/book/{bookID}", handleUpdateBook(store))
+	mux.HandleFunc("GET /library/{id}/book/{bookID}/cover", handleBookCover(store))
 	mux.HandleFunc("GET /library/{id}/book/{bookID}/send", handleBookSendPage(store))
 	mux.HandleFunc("POST /library/{id}/book/{bookID}/send", handleBookSend(store, sender))
 	mux.HandleFunc("GET /recipients", handleRecipients(store))

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -45,6 +46,7 @@ type Book struct {
 	Title           string `db:"title"            metadata:"sync"`
 	Authors         string `db:"authors"          metadata:"sync"` // semicolon-delimited, in document order
 	PublicationDate string `db:"publication_date" metadata:"sync"` // "YYYY-MM-DD" or "YYYY"; empty if absent
+	CoverPath       string `db:"cover_path"       metadata:"sync"` // path within EPUB zip to cover image; empty if absent
 }
 
 // Store is the SQLite-backed data store. Callers that need to accept any
@@ -228,7 +230,7 @@ func (s *Store) DeleteLibrary(ctx context.Context, id string) (bool, error) {
 
 func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, filename, COALESCE(title, ''), COALESCE(authors, ''), COALESCE(publication_date, '')
+		`SELECT id, filename, COALESCE(title, ''), COALESCE(authors, ''), COALESCE(publication_date, ''), COALESCE(cover_path, '')
 		 FROM books WHERE library_id = ? ORDER BY filename`,
 		libraryID,
 	)
@@ -240,7 +242,7 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 	var books []Book
 	for rows.Next() {
 		var b Book
-		if err := rows.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate); err != nil {
+		if err := rows.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate, &b.CoverPath); err != nil {
 			return nil, err
 		}
 		books = append(books, b)
@@ -279,13 +281,15 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (in
 		return 0, err
 	}
 
-	for _, r := range stale {
+	for i, r := range stale {
+		log.Printf("metadata backfill: [%d/%d] %s", i+1, len(stale), r.filename)
+
 		var overrides map[string]bool
 		if err := json.Unmarshal([]byte(r.manualOverrides), &overrides); err != nil {
 			overrides = map[string]bool{}
 		}
 
-		title, authors, pubDate := extractMetadata(filepath.Join(dir, r.filename))
+		title, authors, pubDate, coverPath := extractMetadata(filepath.Join(dir, r.filename))
 
 		var sets []string
 		var args []any
@@ -300,6 +304,10 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (in
 		if !overrides["publication_date"] {
 			sets = append(sets, "publication_date = ?")
 			args = append(args, nilIfEmpty(pubDate))
+		}
+		if !overrides["cover_path"] {
+			sets = append(sets, "cover_path = ?")
+			args = append(args, nilIfEmpty(coverPath))
 		}
 		if len(sets) > 0 {
 			args = append(args, r.id)
@@ -330,12 +338,12 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string) (in
 // not found.
 func (s *Store) GetBook(ctx context.Context, libraryID, bookID string) (*Book, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, filename, COALESCE(title, ''), COALESCE(authors, ''), COALESCE(publication_date, '')
+		`SELECT id, filename, COALESCE(title, ''), COALESCE(authors, ''), COALESCE(publication_date, ''), COALESCE(cover_path, '')
 		 FROM books WHERE id = ? AND library_id = ?`,
 		bookID, libraryID,
 	)
 	var b Book
-	if err := row.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate); err == sql.ErrNoRows {
+	if err := row.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate, &b.CoverPath); err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
@@ -439,13 +447,13 @@ func insertBookRows(ctx context.Context, q dbtx, libraryID string, rows []Book, 
 
 	for _, chunk := range chunkSlice(rows, insertBatchSize) {
 		bookPlaceholders := make([]string, len(chunk))
-		bookArgs := make([]any, 0, len(chunk)*6)
+		bookArgs := make([]any, 0, len(chunk)*7)
 		for i, r := range chunk {
-			bookPlaceholders[i] = "(?, ?, ?, ?, ?, ?)"
-			bookArgs = append(bookArgs, r.ID, libraryID, r.Filename, nilIfEmpty(r.Title), nilIfEmpty(r.Authors), nilIfEmpty(r.PublicationDate))
+			bookPlaceholders[i] = "(?, ?, ?, ?, ?, ?, ?)"
+			bookArgs = append(bookArgs, r.ID, libraryID, r.Filename, nilIfEmpty(r.Title), nilIfEmpty(r.Authors), nilIfEmpty(r.PublicationDate), nilIfEmpty(r.CoverPath))
 		}
 		if _, err := q.ExecContext(ctx,
-			"INSERT INTO books (id, library_id, filename, title, authors, publication_date) VALUES "+strings.Join(bookPlaceholders, ", "),
+			"INSERT INTO books (id, library_id, filename, title, authors, publication_date, cover_path) VALUES "+strings.Join(bookPlaceholders, ", "),
 			bookArgs...,
 		); err != nil {
 			return fmt.Errorf("insert books: %w", err)
@@ -477,8 +485,8 @@ func insertBookRows(ctx context.Context, q dbtx, libraryID string, rows []Book, 
 func insertBooksWithMetadata(ctx context.Context, q dbtx, libraryID, dir string, filenames []string) error {
 	rows := make([]Book, len(filenames))
 	for i, fn := range filenames {
-		title, authors, pubDate := extractMetadata(filepath.Join(dir, fn))
-		rows[i] = Book{ID: uuid.New().String(), Filename: fn, Title: title, Authors: authors, PublicationDate: pubDate}
+		title, authors, pubDate, coverPath := extractMetadata(filepath.Join(dir, fn))
+		rows[i] = Book{ID: uuid.New().String(), Filename: fn, Title: title, Authors: authors, PublicationDate: pubDate, CoverPath: coverPath}
 	}
 	return insertBookRows(ctx, q, libraryID, rows, true)
 }
@@ -523,12 +531,12 @@ func nilIfEmpty(s string) any {
 	return s
 }
 
-func extractMetadata(path string) (title, authors, publicationDate string) {
+func extractMetadata(path string) (title, authors, publicationDate, coverPath string) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".epub":
 		return extractEpubMetadata(path)
 	case ".pdf":
-		return extractPDFMetadata(path)
+		title, authors, publicationDate = extractPDFMetadata(path)
 	}
 	return
 }
@@ -549,7 +557,7 @@ func extractPDFMetadata(path string) (title, author string, _ string) {
 	return info.Title, info.Author, ""
 }
 
-func extractEpubMetadata(path string) (title, authors, publicationDate string) {
+func extractEpubMetadata(path string) (title, authors, publicationDate, coverPath string) {
 	if strings.ToLower(filepath.Ext(path)) != ".epub" {
 		return
 	}
@@ -560,6 +568,9 @@ func extractEpubMetadata(path string) (title, authors, publicationDate string) {
 	title = pkg.Metadata.Title
 	authors = normalizeAuthors(pkg.Metadata.Authors)
 	publicationDate = pkg.Metadata.PublicationDate
+	if pkg.Cover != nil {
+		coverPath = pkg.Cover.Href
+	}
 	return
 }
 

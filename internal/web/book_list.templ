@@ -4,7 +4,6 @@ import (
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 	"github.com/templui/templui/components/button"
 	"github.com/templui/templui/components/sheet"
-	"github.com/templui/templui/components/table"
 )
 
 // BookListScript must be called once per library page to load the sheet/dialog JS.
@@ -14,38 +13,45 @@ templ BookListScript() {
 
 templ BookList(libraryID string, books []storage.Book) {
 	<div id="book-list">
-		@table.Table() {
-			@table.Body() {
-				if len(books) == 0 {
-					@table.Row() {
-						@table.Cell(table.CellProps{Class: "text-muted-foreground"}) {
-							No books found.
-						}
-					}
-				} else {
-					for _, book := range books {
-						@table.Row() {
-							@table.Cell() {
-								{ bookDisplayLabel(book) }
+		if len(books) == 0 {
+			<p class="text-muted-foreground p-4">No books found.</p>
+		} else {
+			<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3 p-4">
+				for _, book := range books {
+					<div class="flex flex-col gap-2" data-book-id={ book.ID }>
+						<div class="relative aspect-[2/3] rounded overflow-hidden bg-muted flex items-center justify-center">
+							if book.CoverPath != "" {
+								<img
+									src={ templ.SafeURL("/library/" + libraryID + "/book/" + book.ID + "/cover") }
+									alt={ bookDisplayLabel(book) }
+									class="object-cover w-full h-full"
+									loading="lazy"
+								/>
+							} else {
+								<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground opacity-30">
+									<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+									<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+								</svg>
 							}
-							@table.Cell(table.CellProps{Class: "w-20 text-right"}) {
-								<div class="flex items-center justify-end gap-1">
-									<a href={ templ.SafeURL("/library/" + libraryID + "/book/" + book.ID + "/send") }>
-										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon}) {
-											<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-										}
-									</a>
-									@sheet.Trigger(sheet.TriggerProps{For: "book-edit-" + book.ID}) {
-										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon}) {
-											<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-										}
-									}
-								</div>
+						</div>
+						<p class="text-xs text-center leading-tight line-clamp-2 px-1" title={ bookDisplayLabel(book) }>
+							{ bookDisplayLabel(book) }
+						</p>
+						<div class="flex items-center justify-center gap-1">
+							<a href={ templ.SafeURL("/library/" + libraryID + "/book/" + book.ID + "/send") }>
+								@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon}) {
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+								}
+							</a>
+							@sheet.Trigger(sheet.TriggerProps{For: "book-edit-" + book.ID}) {
+								@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon}) {
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+								}
 							}
-						}
-					}
+						</div>
+					</div>
 				}
-			}
+			</div>
 		}
 		for _, book := range books {
 			@bookEditSheet(libraryID, book)

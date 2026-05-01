@@ -4,13 +4,15 @@ go 1.26.1
 
 require (
 	github.com/a-h/templ v0.3.1001
-	github.com/billdaws/epub v1.0.1
+	github.com/billdaws/epub v1.0.2
 	github.com/codingconcepts/env v0.0.0-20240618133406-5b0845441187
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/pressly/goose/v3 v3.27.0
+	github.com/resend/resend-go/v2 v2.28.0
 	github.com/templui/templui v1.9.4
+	golang.org/x/image v0.32.0
 	modernc.org/sqlite v1.48.1
 )
 
@@ -28,7 +30,6 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/resend/resend-go/v2 v2.28.0 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/ysmood/fetchup v0.2.3 // indirect
 	github.com/ysmood/goob v0.4.0 // indirect
@@ -37,7 +38,6 @@ require (
 	github.com/ysmood/leakless v0.9.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/image v0.32.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

@@ -1,17 +1,24 @@
 package web
 
 import (
+	"archive/zip"
 	"context"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png" // register PNG decoder
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/billdaws/bookmanager/internal/events"
 	"github.com/billdaws/bookmanager/internal/query"
 	"github.com/billdaws/bookmanager/internal/scanner"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
+	"golang.org/x/image/draw"
 )
 
 // libraryStore is the subset of storage.Store methods used by the library handlers.
@@ -365,5 +372,83 @@ func handleUpdateBook(store libraryStore) http.HandlerFunc {
 
 		log.Printf("handleUpdateBook: updated book %s in library %s", bookID, libraryID)
 		http.Redirect(w, r, "/library/"+libraryID, http.StatusSeeOther)
+	}
+}
+
+func handleBookCover(store libraryStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		libraryID := r.PathValue("id")
+		bookID := r.PathValue("bookID")
+
+		lib, err := store.GetLibraryByID(r.Context(), libraryID)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		book, err := store.GetBook(r.Context(), libraryID, bookID)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if book == nil || book.CoverPath == "" {
+			http.NotFound(w, r)
+			return
+		}
+
+		epubPath := filepath.Join(lib.Directory, book.Filename)
+		zr, err := zip.OpenReader(epubPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer zr.Close()
+
+		for _, f := range zr.File {
+			if f.Name == book.CoverPath {
+				rc, err := f.Open()
+				if err != nil {
+					http.Error(w, "read error", http.StatusInternalServerError)
+					return
+				}
+				defer rc.Close()
+				w.Header().Set("Content-Type", "image/jpeg")
+				w.Header().Set("Cache-Control", "public, max-age=86400")
+				serveCoverThumbnail(w, rc)
+				return
+			}
+		}
+		http.NotFound(w, r)
+	}
+}
+
+// coverMaxWidth is the maximum width in pixels for a served cover thumbnail.
+const coverMaxWidth = 400
+
+// serveCoverThumbnail decodes an image from r, scales it to at most
+// coverMaxWidth pixels wide (preserving aspect ratio), and writes it as JPEG.
+func serveCoverThumbnail(w http.ResponseWriter, r io.Reader) {
+	src, _, err := image.Decode(r)
+	if err != nil {
+		log.Printf("handleBookCover: decode image: %v", err)
+		return
+	}
+
+	bounds := src.Bounds()
+	srcW, srcH := bounds.Dx(), bounds.Dy()
+	dstW, dstH := srcW, srcH
+	if srcW > coverMaxWidth {
+		dstW = coverMaxWidth
+		dstH = srcH * coverMaxWidth / srcW
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
+
+	if err := jpeg.Encode(w, dst, &jpeg.Options{Quality: 85}); err != nil {
+		log.Printf("handleBookCover: encode jpeg: %v", err)
 	}
 }

@@ -152,8 +152,7 @@ func BenchmarkExtractEpubMetadata(b *testing.B) {
 	path := epubFixture(b)
 	b.ReportAllocs()
 	for b.Loop() {
-		title, authors, pubDate := extractEpubMetadata(path)
-		_, _, _ = title, authors, pubDate
+		_, _, _, _ = extractEpubMetadata(path)
 	}
 	assertMaxTime(b, 1*time.Millisecond)
 }
