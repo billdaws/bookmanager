@@ -7,16 +7,16 @@ tmp_dir = "tmp"
 
 [build]
   args_bin = []
-  bin = "./tmp/main"
-  cmd = "go build -o ./tmp/main ./cmd/bookmanager"
+  bin = "/tmp/bookmanager"
+  cmd = "go build -o /tmp/bookmanager ./cmd/bookmanager"
   delay = 1000
-  entrypoint = ["./tmp/main"]
+  entrypoint = ["/tmp/bookmanager"]
   exclude_dir = ["assets", "tmp", "vendor", "testdata"]
   exclude_file = []
   exclude_regex = ["_test.go", "_templ.go"]
   exclude_unchanged = false
   follow_symlink = false
-  full_bin = ""
+  full_bin = "sops exec-env secrets.sops.yaml /tmp/bookmanager"
   ignore_dangerous_root_dir = false
   include_dir = []
   include_ext = ["go", "templ"]
