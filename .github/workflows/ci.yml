@@ -16,7 +16,9 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - run: go test -race ./...
+      - uses: GoTestTools/gotestfmt-action@v2
+
+      - run: go test -race -json ./... | gotestfmt
 
   bench:
     runs-on: ubuntu-latest

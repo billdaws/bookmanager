@@ -47,6 +47,7 @@
             # Handy during development
             air          # live reload
             gnumake
+            gotestfmt
           ];
 
         };

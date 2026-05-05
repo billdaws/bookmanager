@@ -27,10 +27,10 @@ build-css:
 	tailwindcss -i internal/web/static/input.css -o internal/web/static/app.css --minify
 
 test:
-	go test ./...
+	go test -json ./... | gotestfmt
 
 test-race:
-	go test -race ./...
+	go test -race -json ./... | gotestfmt
 
 bench:
 	go test -bench=. -benchmem -count=3 ./internal/storage/db/ ./internal/web/
