@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/billdaws/bookmanager/internal/query"
 	"github.com/billdaws/bookmanager/internal/scanner"
 	"github.com/billdaws/epub"
 	"github.com/google/uuid"
@@ -258,6 +259,91 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 		books = append(books, b)
 	}
 	return books, rows.Err()
+}
+
+// defaultPageLimit is the number of books returned per page by ListBooksPage.
+const defaultPageLimit = 200
+
+// ListBooksParams parameterises a paginated book query.
+type ListBooksParams struct {
+	LibraryID string
+	Cursor    BookCursor // zero value = first page
+	Limit     int        // 0 → defaultPageLimit
+	Filter    query.Expr // nil = no filter
+}
+
+// BooksPage is the result of a paginated book query.
+type BooksPage struct {
+	Books      []Book
+	NextCursor BookCursor
+	HasMore    bool
+}
+
+// ListBooksPage returns at most Limit books for the given library, starting
+// after Cursor. Fetch the next page by passing BooksPage.NextCursor as the
+// Cursor for the subsequent call.
+func (s *Store) ListBooksPage(ctx context.Context, p ListBooksParams) (BooksPage, error) {
+	limit := p.Limit
+	if limit <= 0 {
+		limit = defaultPageLimit
+	}
+
+	var whereParts []string
+	var args []any
+
+	whereParts = append(whereParts, "library_id = ?")
+	args = append(args, p.LibraryID)
+
+	if p.Filter != nil {
+		clause, filterArgs := query.ToSQL(p.Filter)
+		if clause != "" {
+			whereParts = append(whereParts, clause)
+			args = append(args, filterArgs...)
+		}
+	}
+
+	if p.Cursor.Filename != "" || p.Cursor.ID != "" {
+		whereParts = append(whereParts, "(filename, id) > (?, ?)")
+		args = append(args, p.Cursor.Filename, p.Cursor.ID)
+	}
+
+	where := "WHERE " + strings.Join(whereParts, " AND ")
+	args = append(args, limit+1)
+
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+		SELECT id, filename, COALESCE(title,''), COALESCE(authors,''), COALESCE(publication_date,''), COALESCE(cover_path,'')
+		FROM books
+		%s
+		ORDER BY filename, id
+		LIMIT ?`, where), args...)
+	if err != nil {
+		return BooksPage{}, err
+	}
+	defer rows.Close()
+
+	var books []Book
+	for rows.Next() {
+		var b Book
+		if err := rows.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate, &b.CoverPath); err != nil {
+			return BooksPage{}, err
+		}
+		books = append(books, b)
+	}
+	if err := rows.Err(); err != nil {
+		return BooksPage{}, err
+	}
+
+	var pg BooksPage
+	if len(books) > limit {
+		pg.HasMore = true
+		books = books[:limit]
+	}
+	pg.Books = books
+	if pg.HasMore && len(books) > 0 {
+		last := books[len(books)-1]
+		pg.NextCursor = BookCursor{Filename: last.Filename, ID: last.ID}
+	}
+	return pg, nil
 }
 
 // CountBooksNeedingMetadata returns the total number of books across all libraries

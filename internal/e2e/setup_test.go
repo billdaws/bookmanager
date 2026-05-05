@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -189,6 +190,51 @@ func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string
 	}
 
 	return srv.URL, libID, files, startPoller
+}
+
+// newServerWithLargeLibrary starts a server pre-loaded with a library that
+// contains n books, returning the server URL and the library ID. The books are
+// real (empty) .epub files so SyncLibrary does not prune them on page load.
+func newServerWithLargeLibrary(t *testing.T, n int) (string, string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	filenames := make([]string, n)
+	for i := range n {
+		name := fmt.Sprintf("book-%03d.epub", i+1)
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
+			t.Fatalf("create dummy book %s: %v", name, err)
+		}
+		filenames[i] = name
+	}
+
+	database, err := storage.OpenDB(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	store := storage.NewStore(database)
+	if err := store.SetEncryptionKey(testEncryptionKey); err != nil {
+		t.Fatalf("set encryption key: %v", err)
+	}
+
+	libID, err := store.CreateLibraryWithBooks(context.Background(), "Big Library", dir, filenames)
+	if err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	bridge := events.NewEventBridge(nil)
+	mux := http.NewServeMux()
+	if err := web.Register(mux, store, bridge, noopPoller{}, noopSender{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv.URL, libID
 }
 
 // symlinkTestdata creates a temp dir and symlinks every file from testdata/raw

@@ -29,6 +29,7 @@ type libraryStore interface {
 	UpdateBooks(ctx context.Context, libraryID, dir string, filesToAdd []string, bookIDsToRemove []string) error
 	DeleteLibrary(ctx context.Context, id string) (bool, error)
 	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
+	ListBooksPage(ctx context.Context, p storage.ListBooksParams) (storage.BooksPage, error)
 	GetBook(ctx context.Context, libraryID, bookID string) (*storage.Book, error)
 	UpdateBookMetadata(ctx context.Context, bookID, title, authors, pubDate string) error
 }
@@ -46,6 +47,7 @@ type setupPageData struct {
 type libraryPageData struct {
 	Library    *storage.Library
 	Books      []storage.Book
+	NextCursor string // empty = no more pages
 	SyncError  string
 	Query      string
 	QueryError string
@@ -276,7 +278,7 @@ func handleLibraryEvents(store libraryStore, bridge *events.EventBridge) http.Ha
 			}
 			books, _ = applyQuery(books, rawQuery)
 			var buf strings.Builder
-			if err := BookList(id, books).Render(ctx, &buf); err != nil {
+			if err := BookList(id, books, "", rawQuery).Render(ctx, &buf); err != nil {
 				return err
 			}
 			select {
@@ -312,7 +314,8 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 			return
 		}
 
-		data := libraryPageData{Library: lib, Query: r.URL.Query().Get("q")}
+		rawQuery := r.URL.Query().Get("q")
+		data := libraryPageData{Library: lib, Query: rawQuery}
 
 		if err := storage.SyncLibrary(r.Context(), store, lib); err != nil {
 			if r.Context().Err() != nil {
@@ -322,16 +325,36 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 			data.SyncError = fmt.Sprintf("Could not sync library: %v", err)
 		}
 
-		books, err := store.ListBooks(r.Context(), id)
+		cursor, err := storage.DecodeCursor(r.URL.Query().Get("cursor"))
+		if err != nil {
+			cursor = storage.BookCursor{}
+		}
+
+		var filter query.Expr
+		if rawQuery != "" {
+			filter, err = query.Parse(rawQuery)
+			if err != nil {
+				data.QueryError = err.Error()
+			}
+		}
+
+		pg, err := store.ListBooksPage(r.Context(), storage.ListBooksParams{
+			LibraryID: id,
+			Cursor:    cursor,
+			Filter:    filter,
+		})
 		if err != nil {
 			if r.Context().Err() != nil {
 				return
 			}
-			log.Printf("handleLibrary: ListBooks(%s) error: %v", id, err)
+			log.Printf("handleLibrary: ListBooksPage(%s) error: %v", id, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
-		data.Books, data.QueryError = applyQuery(books, data.Query)
+		data.Books = pg.Books
+		if pg.HasMore {
+			data.NextCursor = pg.NextCursor.Encode()
+		}
 
 		if err := LibraryPage(data).Render(r.Context(), w); err != nil {
 			log.Printf("handleLibrary: render error: %v", err)

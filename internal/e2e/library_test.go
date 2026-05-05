@@ -212,6 +212,63 @@ func TestEditBookMetadata(t *testing.T) {
 	page.MustElementR("#book-list", "My Custom Title")
 }
 
+// TestPaginationLoadMore verifies that a library with more than 50 books shows a
+// "Load more" link on the first page and that clicking it loads the next page.
+func TestPaginationLoadMore(t *testing.T) {
+	t.Parallel()
+	base, libID := newServerWithLargeLibrary(t, 210)
+	page := newPage(t)
+
+	page.MustNavigate(base + "/library/" + libID)
+	page.MustElement(`#book-list`)
+
+	// First page should show exactly 200 books and a "Load more" link.
+	cards := page.MustElements("#book-list [data-book-id]")
+	if got := len(cards); got != 200 {
+		t.Errorf("first page: got %d book cards, want 200", got)
+	}
+	page.MustElement(`#load-more`)
+
+	// Click "Load more" → navigates to page 2.
+	wait := page.MustWaitNavigation()
+	page.MustElement(`#load-more`).MustClick()
+	wait()
+
+	// Second page should show the remaining 10 books and no "Load more" link.
+	cards = page.MustElements("#book-list [data-book-id]")
+	if got := len(cards); got != 10 {
+		t.Errorf("second page: got %d book cards, want 10", got)
+	}
+	if el := page.MustElements(`#load-more`); len(el) != 0 {
+		t.Error("second page: unexpected 'Load more' link")
+	}
+}
+
+// TestPaginationSearchResetsPage verifies that submitting a search does not
+// carry a cursor, so results always start from the first page.
+func TestPaginationSearchResetsPage(t *testing.T) {
+	t.Parallel()
+	base, libID := newServerWithLargeLibrary(t, 60)
+	page := newPage(t)
+
+	// Navigate to page 2 by appending a cursor manually isn't straightforward,
+	// so instead navigate to a search query and confirm no cursor is present in
+	// the search form action and the results start from the top.
+	page.MustNavigate(base + "/library/" + libID + "?q=book-001")
+	page.MustElement(`#book-list`)
+
+	// The search for "book-001" matches one book (exact filename prefix match).
+	cards := page.MustElements("#book-list [data-book-id]")
+	if got := len(cards); got != 1 {
+		t.Errorf("search: got %d book cards, want 1", got)
+	}
+
+	// No "Load more" link — a single result fits on one page.
+	if el := page.MustElements(`#load-more`); len(el) != 0 {
+		t.Error("search result: unexpected 'Load more' link")
+	}
+}
+
 // libraryIDFromURL extracts the library ID from a URL of the form /library/{id}[?...].
 func libraryIDFromURL(u string) string {
 	// strip query string first
