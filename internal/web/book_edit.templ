@@ -8,7 +8,7 @@ import (
 	"github.com/templui/templui/components/sheet"
 )
 
-templ bookEditSheet(libraryID string, book storage.Book) {
+templ bookEditSheet(libraryID string, book storage.Book, allSeries []storage.SeriesSummary) {
 	@sheet.Sheet(sheet.Props{ID: "book-edit-" + book.ID}) {
 		@sheet.Content() {
 			@sheet.Header() {
@@ -49,6 +49,27 @@ templ bookEditSheet(libraryID string, book storage.Book) {
 							Placeholder: "YYYY or YYYY-MM-DD",
 						})
 					</div>
+					if len(allSeries) > 0 {
+						<div class="space-y-1">
+							@label.Label(label.Props{For: "series-" + book.ID}) {
+								Series
+							}
+							<select
+								id={ "series-" + book.ID }
+								name="series_id"
+								class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+							>
+								<option value="">— None —</option>
+								for _, s := range allSeries {
+									if s.ID == book.SeriesID {
+										<option value={ s.ID } selected>{ s.Name }</option>
+									} else {
+										<option value={ s.ID }>{ s.Name }</option>
+									}
+								}
+							</select>
+						</div>
+					}
 					@button.Button(button.Props{Type: button.TypeSubmit, Class: "w-full"}) {
 						Save
 					}

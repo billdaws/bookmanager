@@ -30,8 +30,27 @@ type libraryStore interface {
 	DeleteLibrary(ctx context.Context, id string) (bool, error)
 	ListBooks(ctx context.Context, libraryID string) ([]storage.Book, error)
 	ListBooksPage(ctx context.Context, p storage.ListBooksParams) (storage.BooksPage, error)
+	ListSeriesPage(ctx context.Context, libraryID string, cursor storage.SeriesCursor, limit int) ([]storage.SeriesSummary, storage.SeriesCursor, error)
+	ListSeriesBooks(ctx context.Context, seriesID string, cursor storage.BookCursor, limit int) (storage.BooksPage, error)
 	GetBook(ctx context.Context, libraryID, bookID string) (*storage.Book, error)
+	GetSeriesByID(ctx context.Context, libraryID, seriesID string) (*storage.Series, error)
 	UpdateBookMetadata(ctx context.Context, bookID, title, authors, pubDate string) error
+	UpsertSeries(ctx context.Context, libraryID, name string) (string, error)
+	BatchAssignBooksToSeries(ctx context.Context, seriesID string, bookIDs []string) error
+	AssignBookToSeries(ctx context.Context, bookID, seriesID string, index *int, display string) error
+	RemoveBookFromSeries(ctx context.Context, bookID string) error
+	ListLibraryItems(ctx context.Context, libraryID string, cursor storage.ReadableCursor, filter query.Expr, limit int) (storage.LibraryItemsPage, error)
+}
+
+// Readable is either a standalone Book or a Series. Exactly one field is non-nil.
+type Readable struct {
+	Book   *storage.Book
+	Series *ReadableSeries
+}
+
+// ReadableSeries is a Series with its aggregate book count and cover book.
+type ReadableSeries struct {
+	storage.SeriesSummary
 }
 
 type indexPageData struct {
@@ -46,8 +65,9 @@ type setupPageData struct {
 
 type libraryPageData struct {
 	Library    *storage.Library
-	Books      []storage.Book
-	NextCursor string // empty = no more pages
+	Readables  []Readable
+	AllSeries  []storage.SeriesSummary
+	NextCursor string // empty = no more pages (standalone books only)
 	SyncError  string
 	Query      string
 	QueryError string
@@ -245,6 +265,39 @@ func handleLibraryDelete(store libraryStore) http.HandlerFunc {
 	}
 }
 
+// buildReadables fetches a page of library items (series and standalone books)
+// sorted case-insensitively by display name, and a separate full list of all
+// series for the edit sheet. Returns the items, all series, and the next cursor.
+func buildReadables(ctx context.Context, store libraryStore, libraryID string, cursor storage.ReadableCursor, filter query.Expr) ([]Readable, []storage.SeriesSummary, string, error) {
+	pg, err := store.ListLibraryItems(ctx, libraryID, cursor, filter, 0)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	readables := make([]Readable, len(pg.Items))
+	for i, item := range pg.Items {
+		if item.Kind == "series" {
+			rs := ReadableSeries{SeriesSummary: *item.Series}
+			readables[i] = Readable{Series: &rs}
+		} else {
+			b := *item.Book
+			readables[i] = Readable{Book: &b}
+		}
+	}
+
+	// Fetch all series for the bookEditSheet select, independent of pagination.
+	allSeries, _, err := store.ListSeriesPage(ctx, libraryID, storage.SeriesCursor{}, 0)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	nextCursor := ""
+	if pg.HasMore {
+		nextCursor = pg.NextCursor.Encode()
+	}
+	return readables, allSeries, nextCursor, nil
+}
+
 func handleLibraryEvents(store libraryStore, bridge *events.EventBridge) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -272,13 +325,16 @@ func handleLibraryEvents(store libraryStore, bridge *events.EventBridge) http.Ha
 
 		ctx := r.Context()
 		unsub := bridge.Subscribe(events.TopicLibraryBooksChanged(id), subName, func(e events.Event) error {
-			books, err := store.ListBooks(ctx, id)
+			var filter query.Expr
+			if rawQuery != "" {
+				filter, _ = query.Parse(rawQuery)
+			}
+			readables, allSeries, nextCursor, err := buildReadables(ctx, store, id, storage.ReadableCursor{}, filter)
 			if err != nil {
 				return err
 			}
-			books, _ = applyQuery(books, rawQuery)
 			var buf strings.Builder
-			if err := BookList(id, books, "", rawQuery).Render(ctx, &buf); err != nil {
+			if err := ReadableList(id, readables, allSeries, nextCursor, rawQuery).Render(ctx, &buf); err != nil {
 				return err
 			}
 			select {
@@ -325,9 +381,9 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 			data.SyncError = fmt.Sprintf("Could not sync library: %v", err)
 		}
 
-		cursor, err := storage.DecodeCursor(r.URL.Query().Get("cursor"))
+		cursor, err := storage.DecodeReadableCursor(r.URL.Query().Get("cursor"))
 		if err != nil {
-			cursor = storage.BookCursor{}
+			cursor = storage.ReadableCursor{}
 		}
 
 		var filter query.Expr
@@ -338,23 +394,18 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 			}
 		}
 
-		pg, err := store.ListBooksPage(r.Context(), storage.ListBooksParams{
-			LibraryID: id,
-			Cursor:    cursor,
-			Filter:    filter,
-		})
+		readables, allSeries, nextCursor, err := buildReadables(r.Context(), store, id, cursor, filter)
 		if err != nil {
 			if r.Context().Err() != nil {
 				return
 			}
-			log.Printf("handleLibrary: ListBooksPage(%s) error: %v", id, err)
+			log.Printf("handleLibrary: buildReadables(%s) error: %v", id, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
-		data.Books = pg.Books
-		if pg.HasMore {
-			data.NextCursor = pg.NextCursor.Encode()
-		}
+		data.Readables = readables
+		data.AllSeries = allSeries
+		data.NextCursor = nextCursor
 
 		if err := LibraryPage(data).Render(r.Context(), w); err != nil {
 			log.Printf("handleLibrary: render error: %v", err)
@@ -376,6 +427,7 @@ func handleUpdateBook(store libraryStore) http.HandlerFunc {
 		title := strings.TrimSpace(r.FormValue("title"))
 		authors := strings.TrimSpace(r.FormValue("authors"))
 		pubDate := strings.TrimSpace(r.FormValue("publication_date"))
+		newSeriesID := r.FormValue("series_id")
 
 		book, err := store.GetBook(r.Context(), libraryID, bookID)
 		if err != nil {
@@ -391,6 +443,22 @@ func handleUpdateBook(store libraryStore) http.HandlerFunc {
 			log.Printf("handleUpdateBook: UpdateBookMetadata(%s) error: %v", bookID, err)
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
+		}
+
+		if newSeriesID != book.SeriesID {
+			if newSeriesID == "" {
+				if err := store.RemoveBookFromSeries(r.Context(), bookID); err != nil {
+					log.Printf("handleUpdateBook: RemoveBookFromSeries(%s) error: %v", bookID, err)
+					http.Error(w, "database error", http.StatusInternalServerError)
+					return
+				}
+			} else {
+				if err := store.AssignBookToSeries(r.Context(), bookID, newSeriesID, nil, ""); err != nil {
+					log.Printf("handleUpdateBook: AssignBookToSeries(%s) error: %v", bookID, err)
+					http.Error(w, "database error", http.StatusInternalServerError)
+					return
+				}
+			}
 		}
 
 		log.Printf("handleUpdateBook: updated book %s in library %s", bookID, libraryID)

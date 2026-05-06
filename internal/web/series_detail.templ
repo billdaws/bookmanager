@@ -1,0 +1,94 @@
+package web
+
+import (
+	"fmt"
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/sheet"
+)
+
+script connectSeriesEventSource(libraryID string, seriesID string) {
+	const source = new EventSource("/library/" + libraryID + "/series/" + seriesID + "/events");
+	source.addEventListener("books-updated", function(e) {
+		document.getElementById("series-book-list").outerHTML = e.data;
+	});
+	window.addEventListener("beforeunload", () => source.close());
+}
+
+templ SeriesPage(data seriesPageData) {
+	@layout("Bookmanager — " + data.Series.Name) {
+		<main class="container mx-auto p-8 max-w-5xl">
+			<a href={ templ.SafeURL("/library/" + data.Library.ID) } class="text-sm text-muted-foreground hover:underline mb-4 inline-block">← { data.Library.Name }</a>
+			<div class="flex items-center gap-2 mb-6">
+				<h1 class="text-2xl font-bold">{ data.Series.Name }</h1>
+				<a href={ templ.SafeURL("/library/" + data.Library.ID + "/series/" + data.Series.ID + "/add") } class="ml-auto text-sm text-muted-foreground hover:underline">Add books</a>
+			</div>
+			<div class="border rounded-lg">
+				@SeriesBooksFragment(data.Library.ID, data.Series.ID, data.Books, data.AllSeries, data.NextCursor)
+			</div>
+		</main>
+		@connectSeriesEventSource(data.Library.ID, data.Series.ID)
+		@sheet.Script()
+	}
+}
+
+// SeriesBooksFragment renders the paginated book grid for a series. It is also
+// rendered standalone by the SSE handler when the book list changes.
+templ SeriesBooksFragment(libraryID string, seriesID string, books []storage.Book, allSeries []storage.SeriesSummary, nextCursor string) {
+	<div id="series-book-list">
+		if len(books) == 0 {
+			<p class="text-muted-foreground p-4">No books in this series.</p>
+		} else {
+			<p class="text-sm text-muted-foreground px-4 pt-4">{ fmt.Sprintf("%d", len(books)) } book(s)</p>
+			<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3 p-4">
+				for _, book := range books {
+					<div class="flex flex-col gap-2" data-book-id={ book.ID }>
+						<div class="relative aspect-[2/3] rounded overflow-hidden bg-muted flex items-center justify-center">
+							if book.CoverPath != "" {
+								<img
+									src={ templ.SafeURL("/library/" + libraryID + "/book/" + book.ID + "/cover") }
+									alt={ bookDisplayLabel(book) }
+									class="object-cover w-full h-full"
+									loading="lazy"
+								/>
+							} else {
+								<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground opacity-30">
+									<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+									<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+								</svg>
+							}
+							if book.SeriesDisplay != "" {
+								<span class="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
+									{ book.SeriesDisplay }
+								</span>
+							}
+						</div>
+						<p class="text-xs text-center leading-tight line-clamp-2 px-1" title={ bookDisplayLabel(book) }>
+							{ bookDisplayLabel(book) }
+						</p>
+						<div class="flex items-center justify-center gap-1">
+							<a href={ templ.SafeURL("/library/" + libraryID + "/book/" + book.ID + "/send") }>
+								@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon}) {
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+								}
+							</a>
+							@sheet.Trigger(sheet.TriggerProps{For: "book-edit-" + book.ID}) {
+								@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon}) {
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+								}
+							}
+						</div>
+					</div>
+				}
+			</div>
+			if nextCursor != "" {
+				<div class="flex justify-center p-4 border-t">
+					<a id="load-more" href={ templ.SafeURL("/library/" + libraryID + "/series/" + seriesID + "?cursor=" + nextCursor) } class="text-sm text-muted-foreground hover:underline">Load more</a>
+				</div>
+			}
+		}
+		for _, book := range books {
+			@bookEditSheet(libraryID, book, allSeries)
+		}
+	</div>
+}

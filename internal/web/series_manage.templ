@@ -1,0 +1,146 @@
+package web
+
+import (
+	storage "github.com/billdaws/bookmanager/internal/storage/db"
+	"github.com/templui/templui/components/alert"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/input"
+	"github.com/templui/templui/components/label"
+)
+
+templ SeriesNewPage(data seriesNewPageData) {
+	@layout("Bookmanager — New series") {
+		<main class="container mx-auto p-8 max-w-md">
+			<a href={ templ.SafeURL("/library/" + data.Library.ID) } class="text-sm text-muted-foreground hover:underline mb-4 inline-block">← { data.Library.Name }</a>
+			<h1 class="text-2xl font-bold mb-6">New series</h1>
+			if data.Error != "" {
+				<div class="mb-4">
+					@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+						@alert.Description() {
+							{ data.Error }
+						}
+					}
+				</div>
+			}
+			<form method="POST" action={ templ.SafeURL("/library/" + data.Library.ID + "/series") } class="space-y-4">
+				<div class="space-y-1">
+					@label.Label(label.Props{For: "name"}) {
+						Series name
+					}
+					@input.Input(input.Props{
+						ID:          "name",
+						Name:        "name",
+						Type:        input.TypeText,
+						Value:       data.Name,
+						Placeholder: "e.g. In Search of Lost Time",
+						Required:    true,
+						Attributes:  templ.Attributes{"autofocus": "true"},
+					})
+				</div>
+				@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+					Create series
+				}
+			</form>
+		</main>
+		@label.Script()
+	}
+}
+
+script updateSelectionCount() {
+	function update() {
+		const n = document.querySelectorAll('input[name="book_id"]:checked').length;
+		const btn = document.getElementById('add-btn');
+		if (btn) {
+			btn.textContent = n > 0 ? `Add ${n} book${n !== 1 ? 's' : ''}` : 'Add selected books';
+		}
+	}
+	document.querySelectorAll('input[name="book_id"]').forEach(function(cb) {
+		cb.addEventListener('change', update);
+	});
+}
+
+templ SeriesAddBooksPage(data seriesAddBooksPageData) {
+	@layout("Bookmanager — Add books") {
+		<main class="container mx-auto p-8 max-w-5xl pb-28">
+			<a href={ templ.SafeURL("/library/" + data.Library.ID + "/series/" + data.Series.ID) } class="text-sm text-muted-foreground hover:underline mb-4 inline-block">← { data.Series.Name }</a>
+			<h1 class="text-2xl font-bold mb-6">Add books to "{ data.Series.Name }"</h1>
+			<div class="mb-4">
+				<form action={ templ.SafeURL("/library/" + data.Library.ID + "/series/" + data.Series.ID + "/add") } method="GET">
+					@input.Input(input.Props{
+						Type:        input.TypeSearch,
+						Name:        "q",
+						Placeholder: `Search (e.g. author:tolkien, title:"the hobbit")`,
+						Attributes:  templ.Attributes{"value": data.Query},
+					})
+				</form>
+			</div>
+			@seriesBookSelectForm(data)
+		</main>
+		@updateSelectionCount()
+	}
+}
+
+templ seriesBookSelectForm(data seriesAddBooksPageData) {
+	<form method="POST" action={ templ.SafeURL("/library/" + data.Library.ID + "/series/" + data.Series.ID + "/add") }>
+		<input type="hidden" name="q" value={ data.Query }/>
+		if len(data.Books) == 0 {
+			<p class="text-muted-foreground">No books available to add.</p>
+		} else {
+			<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3">
+				for _, book := range data.Books {
+					@bookSelectCard(data.Library.ID, book)
+				}
+			</div>
+			if data.NextCursor != "" {
+				<div class="flex justify-center p-4">
+					<a href={ templ.SafeURL("/library/" + data.Library.ID + "/series/" + data.Series.ID + "/add?cursor=" + data.NextCursor + paginationQuery(data.Query)) } class="text-sm text-muted-foreground hover:underline">Load more</a>
+				</div>
+			}
+		}
+		<div class="fixed bottom-0 left-0 right-0 bg-background border-t px-8 py-4 flex items-center justify-between">
+			<a href={ templ.SafeURL("/library/" + data.Library.ID + "/series/" + data.Series.ID) } class="text-sm text-muted-foreground hover:underline">Cancel</a>
+			@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"id": "add-btn"}}) {
+				Add selected books
+			}
+		</div>
+	</form>
+}
+
+// bookSelectCard renders a selectable book card. It uses CSS group-has-[:checked]
+// so the ring and overlay respond to the checkbox state without JavaScript.
+templ bookSelectCard(libraryID string, book storage.Book) {
+	<label class="cursor-pointer select-none flex flex-col gap-2 group">
+		<input type="checkbox" name="book_id" value={ book.ID } class="sr-only"/>
+		<div class="relative aspect-[2/3] rounded overflow-hidden bg-muted flex items-center justify-center ring-offset-background group-has-[:checked]:ring-2 group-has-[:checked]:ring-primary group-has-[:checked]:ring-offset-2 transition-shadow">
+			if book.CoverPath != "" {
+				<img
+					src={ templ.SafeURL("/library/" + libraryID + "/book/" + book.ID + "/cover") }
+					alt={ bookDisplayLabel(book) }
+					class="object-cover w-full h-full"
+					loading="lazy"
+				/>
+			} else {
+				<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground opacity-30">
+					<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+					<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+				</svg>
+			}
+			<div class="absolute inset-0 bg-primary/20 opacity-0 group-has-[:checked]:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+				<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-primary drop-shadow">
+					<polyline points="20 6 9 17 4 12"></polyline>
+				</svg>
+			</div>
+		</div>
+		<p class="text-xs text-center leading-tight line-clamp-2 px-1" title={ bookDisplayLabel(book) }>
+			{ bookDisplayLabel(book) }
+		</p>
+	</label>
+}
+
+// paginationQuery returns "&q=..." if query is non-empty, for appending to cursor links.
+func paginationQuery(q string) string {
+	if q == "" {
+		return ""
+	}
+	return "&q=" + q
+}

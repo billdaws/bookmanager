@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/billdaws/bookmanager/internal/query"
 	"github.com/billdaws/bookmanager/internal/scanner"
@@ -42,6 +43,14 @@ type Library struct {
 	Directory string
 }
 
+type Series struct {
+	ID          string
+	LibraryID   string
+	Name        string
+	CoverBookID string // empty if no cover book has been assigned yet
+	CreatedAt   time.Time
+}
+
 type Book struct {
 	ID              string `db:"id"`
 	Filename        string `db:"filename"`
@@ -49,6 +58,9 @@ type Book struct {
 	Authors         string `db:"authors"          metadata:"sync"` // semicolon-delimited, in document order
 	PublicationDate string `db:"publication_date" metadata:"sync"` // "YYYY-MM-DD" or "YYYY"; empty if absent
 	CoverPath       string `db:"cover_path"       metadata:"sync"` // path within EPUB zip to cover image; empty if absent
+	SeriesID        string // empty if not in a series
+	SeriesIndex     *int   // nil if not in a series or index not set
+	SeriesDisplay   string // human-readable label (e.g. "Vol. 1"); empty if not set
 }
 
 // Store is the SQLite-backed data store. Callers that need to accept any
@@ -88,6 +100,33 @@ var extractableColumns = func() []string {
 
 // currentColumnsKey is the value stored in metadata_sync.columns_attempted.
 var currentColumnsKey = strings.Join(extractableColumns, ",")
+
+// bookColumns is the SELECT column list for all book queries. The column order
+// must match scanBook.
+const bookColumns = `id, filename, COALESCE(title,''), COALESCE(authors,''), COALESCE(publication_date,''), COALESCE(cover_path,''), COALESCE(series_id,''), series_index, COALESCE(series_display,'')`
+
+// rowScanner is satisfied by both *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanBook scans a row produced by a bookColumns SELECT into a Book.
+func scanBook(rs rowScanner) (Book, error) {
+	var b Book
+	var seriesIdx sql.NullInt64
+	if err := rs.Scan(
+		&b.ID, &b.Filename, &b.Title, &b.Authors,
+		&b.PublicationDate, &b.CoverPath,
+		&b.SeriesID, &seriesIdx, &b.SeriesDisplay,
+	); err != nil {
+		return Book{}, err
+	}
+	if seriesIdx.Valid {
+		v := int(seriesIdx.Int64)
+		b.SeriesIndex = &v
+	}
+	return b, nil
+}
 
 // syncer is the subset of Store methods needed by SyncLibrary.
 type syncer interface {
@@ -241,8 +280,7 @@ func (s *Store) DeleteLibrary(ctx context.Context, id string) (bool, error) {
 
 func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, filename, COALESCE(title, ''), COALESCE(authors, ''), COALESCE(publication_date, ''), COALESCE(cover_path, '')
-		 FROM books WHERE library_id = ? ORDER BY filename`,
+		`SELECT `+bookColumns+` FROM books WHERE library_id = ? ORDER BY filename`,
 		libraryID,
 	)
 	if err != nil {
@@ -252,8 +290,8 @@ func (s *Store) ListBooks(ctx context.Context, libraryID string) ([]Book, error)
 
 	var books []Book
 	for rows.Next() {
-		var b Book
-		if err := rows.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate, &b.CoverPath); err != nil {
+		b, err := scanBook(rows)
+		if err != nil {
 			return nil, err
 		}
 		books = append(books, b)
@@ -266,10 +304,12 @@ const defaultPageLimit = 200
 
 // ListBooksParams parameterises a paginated book query.
 type ListBooksParams struct {
-	LibraryID string
-	Cursor    BookCursor // zero value = first page
-	Limit     int        // 0 → defaultPageLimit
-	Filter    query.Expr // nil = no filter
+	LibraryID       string
+	Cursor          BookCursor // zero value = first page
+	Limit           int        // 0 → defaultPageLimit
+	Filter          query.Expr // nil = no filter
+	StandaloneOnly  bool       // when true, only books with no series_id are returned
+	ExcludeSeriesID string     // when set, books already in this series are excluded
 }
 
 // BooksPage is the result of a paginated book query.
@@ -294,6 +334,15 @@ func (s *Store) ListBooksPage(ctx context.Context, p ListBooksParams) (BooksPage
 	whereParts = append(whereParts, "library_id = ?")
 	args = append(args, p.LibraryID)
 
+	if p.StandaloneOnly {
+		whereParts = append(whereParts, "series_id IS NULL")
+	}
+
+	if p.ExcludeSeriesID != "" {
+		whereParts = append(whereParts, "(series_id IS NULL OR series_id != ?)")
+		args = append(args, p.ExcludeSeriesID)
+	}
+
 	if p.Filter != nil {
 		clause, filterArgs := query.ToSQL(p.Filter)
 		if clause != "" {
@@ -311,7 +360,7 @@ func (s *Store) ListBooksPage(ctx context.Context, p ListBooksParams) (BooksPage
 	args = append(args, limit+1)
 
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT id, filename, COALESCE(title,''), COALESCE(authors,''), COALESCE(publication_date,''), COALESCE(cover_path,'')
+		SELECT `+bookColumns+`
 		FROM books
 		%s
 		ORDER BY filename, id
@@ -323,8 +372,8 @@ func (s *Store) ListBooksPage(ctx context.Context, p ListBooksParams) (BooksPage
 
 	var books []Book
 	for rows.Next() {
-		var b Book
-		if err := rows.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate, &b.CoverPath); err != nil {
+		b, err := scanBook(rows)
+		if err != nil {
 			return BooksPage{}, err
 		}
 		books = append(books, b)
@@ -514,12 +563,11 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string, onE
 // not found.
 func (s *Store) GetBook(ctx context.Context, libraryID, bookID string) (*Book, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, filename, COALESCE(title, ''), COALESCE(authors, ''), COALESCE(publication_date, ''), COALESCE(cover_path, '')
-		 FROM books WHERE id = ? AND library_id = ?`,
+		`SELECT `+bookColumns+` FROM books WHERE id = ? AND library_id = ?`,
 		bookID, libraryID,
 	)
-	var b Book
-	if err := row.Scan(&b.ID, &b.Filename, &b.Title, &b.Authors, &b.PublicationDate, &b.CoverPath); err == sql.ErrNoRows {
+	b, err := scanBook(row)
+	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
