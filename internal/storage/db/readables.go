@@ -25,8 +25,8 @@ type LibraryItemsPage struct {
 
 // ListLibraryItems returns at most limit items (series and standalone books)
 // for the given library, sorted case-insensitively by (sort_key, kind, id),
-// starting after cursor. Series are always included; filter applies only to
-// books.
+// starting after cursor. When a filter is provided, a series is included only
+// if at least one of its member books matches the filter.
 func (s *Store) ListLibraryItems(ctx context.Context, libraryID string, cursor ReadableCursor, filter query.Expr, limit int) (LibraryItemsPage, error) {
 	if limit <= 0 {
 		limit = defaultPageLimit
@@ -50,8 +50,10 @@ func (s *Store) ListLibraryItems(ctx context.Context, libraryID string, cursor R
 	if filter != nil {
 		clause, filterArgs := query.ToSQL(filter)
 		if clause != "" {
-			whereParts = append(whereParts, "(kind = 'series' OR "+clause+")")
-			args = append(args, filterArgs...)
+			whereParts = append(whereParts,
+				"((kind = 'series' AND EXISTS (SELECT 1 FROM books b WHERE b.series_id = library_items.id AND "+clause+")) OR (kind != 'series' AND "+clause+"))")
+			args = append(args, filterArgs...) // for the series EXISTS subquery
+			args = append(args, filterArgs...) // for the standalone book condition
 		}
 	}
 

@@ -164,10 +164,26 @@ func TestListLibraryItems_Filter(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	libID, _ := setupReadablesLibrary(t, s,
+	libID, seriesIDs := setupReadablesLibrary(t, s,
 		[]string{"tolkien-hobbit.epub", "tolkien-lotr.epub", "king-it.epub"},
-		[]string{"Tolkien Collection"},
+		[]string{"Tolkien Collection", "King Collection"},
 	)
+
+	// Assign tolkien books to "Tolkien Collection" and king-it to "King Collection".
+	books, err := s.ListBooks(ctx, libID)
+	if err != nil {
+		t.Fatalf("ListBooks: %v", err)
+	}
+	bookIDs := make(map[string]string) // filename → id
+	for _, b := range books {
+		bookIDs[b.Filename] = b.ID
+	}
+	if err := s.BatchAssignBooksToSeries(ctx, seriesIDs["Tolkien Collection"], []string{bookIDs["tolkien-hobbit.epub"], bookIDs["tolkien-lotr.epub"]}); err != nil {
+		t.Fatalf("BatchAssignBooksToSeries(Tolkien): %v", err)
+	}
+	if err := s.BatchAssignBooksToSeries(ctx, seriesIDs["King Collection"], []string{bookIDs["king-it.epub"]}); err != nil {
+		t.Fatalf("BatchAssignBooksToSeries(King): %v", err)
+	}
 
 	filter, err := query.Parse("tolkien")
 	if err != nil {
@@ -179,31 +195,29 @@ func TestListLibraryItems_Filter(t *testing.T) {
 		t.Fatalf("ListLibraryItems: %v", err)
 	}
 
-	// Should include: Tolkien Collection (series, always shown), tolkien-hobbit.epub, tolkien-lotr.epub
-	// Should exclude: king-it.epub (no match)
-	if len(pg.Items) != 3 {
-		t.Fatalf("filtered count: got %d, want 3", len(pg.Items))
+	// Should include: Tolkien Collection (its books match "tolkien")
+	// Should exclude: King Collection (no member books match "tolkien"), standalone books (all assigned to series)
+	if len(pg.Items) != 1 {
+		t.Fatalf("filtered count: got %d, want 1 (names: %v)", len(pg.Items), itemNames(pg.Items))
 	}
-	// Series comes first alphabetically (T < t but LOWER makes them equal prefix, series sorts before books at same key)
-	kinds := make([]string, len(pg.Items))
-	for i, item := range pg.Items {
-		kinds[i] = item.Kind
+	if pg.Items[0].Kind != "series" || pg.Items[0].Series.Name != "Tolkien Collection" {
+		t.Errorf("item[0]: got kind=%q name=%q", pg.Items[0].Kind, seriesOrBookName(pg.Items[0]))
 	}
-	// There should be exactly 1 series and 2 books
-	var nSeries, nBooks int
-	for _, item := range pg.Items {
-		if item.Kind == "series" {
-			nSeries++
-		} else {
-			nBooks++
-		}
+}
+
+func itemNames(items []LibraryItem) []string {
+	names := make([]string, len(items))
+	for i, item := range items {
+		names[i] = seriesOrBookName(item)
 	}
-	if nSeries != 1 {
-		t.Errorf("series count: got %d, want 1", nSeries)
+	return names
+}
+
+func seriesOrBookName(item LibraryItem) string {
+	if item.Kind == "series" {
+		return item.Series.Name
 	}
-	if nBooks != 2 {
-		t.Errorf("book count: got %d, want 2", nBooks)
-	}
+	return item.Book.Filename
 }
 
 func TestListLibraryItems_BooksInSeriesExcluded(t *testing.T) {
