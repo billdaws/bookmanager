@@ -56,3 +56,4 @@ internal/web/static/sources.generated.css
 
 # Claude
 .claude/settings.local.json
+docs/*plan.md
