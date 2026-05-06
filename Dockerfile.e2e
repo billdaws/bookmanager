@@ -11,4 +11,4 @@ RUN go mod download
 
 COPY . .
 
-CMD ["go", "test", "-v", "-tags", "e2e", "./internal/e2e/..."]
+CMD ["go", "test", "-json", "-v", "-tags", "e2e", "./internal/e2e/..."]
