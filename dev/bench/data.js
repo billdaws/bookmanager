@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778110101111,
+  "lastUpdate": 1778110652302,
   "repoUrl": "https://github.com/billdaws/bookmanager",
   "entries": {
     "Benchmark": [
@@ -10198,6 +10198,414 @@ window.BENCHMARK_DATA = {
           {
             "name": "BenchmarkHandleLibraryConcurrent (github.com/billdaws/bookmanager/internal/web) - allocs/op",
             "value": 188418,
+            "unit": "allocs/op",
+            "extra": "33 times\n2 procs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "17349161+billdaws@users.noreply.github.com",
+            "name": "Bill Daws",
+            "username": "billdaws"
+          },
+          "committer": {
+            "email": "17349161+billdaws@users.noreply.github.com",
+            "name": "Bill Daws",
+            "username": "billdaws"
+          },
+          "distinct": true,
+          "id": "1ee2b3facad1ba29f3e9823814ee0c4791a6dae5",
+          "message": "fix: filtering not applying to series",
+          "timestamp": "2026-05-06T19:36:05-04:00",
+          "tree_id": "a70c40c0ced655c128880c584f446a81aeb24617",
+          "url": "https://github.com/billdaws/bookmanager/commit/1ee2b3facad1ba29f3e9823814ee0c4791a6dae5"
+        },
+        "date": 1778110651800,
+        "tool": "go",
+        "benches": [
+          {
+            "name": "BenchmarkListBooks/100_books (github.com/billdaws/bookmanager/internal/storage/db)",
+            "value": 254891,
+            "unit": "ns/op\t   86008 B/op\t    1029 allocs/op",
+            "extra": "4744 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/100_books (github.com/billdaws/bookmanager/internal/storage/db) - ns/op",
+            "value": 254891,
+            "unit": "ns/op",
+            "extra": "4744 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/100_books (github.com/billdaws/bookmanager/internal/storage/db) - B/op",
+            "value": 86008,
+            "unit": "B/op",
+            "extra": "4744 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/100_books (github.com/billdaws/bookmanager/internal/storage/db) - allocs/op",
+            "value": 1029,
+            "unit": "allocs/op",
+            "extra": "4744 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/1000_books (github.com/billdaws/bookmanager/internal/storage/db)",
+            "value": 2316048,
+            "unit": "ns/op\t  946969 B/op\t   10033 allocs/op",
+            "extra": "505 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/1000_books (github.com/billdaws/bookmanager/internal/storage/db) - ns/op",
+            "value": 2316048,
+            "unit": "ns/op",
+            "extra": "505 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/1000_books (github.com/billdaws/bookmanager/internal/storage/db) - B/op",
+            "value": 946969,
+            "unit": "B/op",
+            "extra": "505 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/1000_books (github.com/billdaws/bookmanager/internal/storage/db) - allocs/op",
+            "value": 10033,
+            "unit": "allocs/op",
+            "extra": "505 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/10000_books (github.com/billdaws/bookmanager/internal/storage/db)",
+            "value": 23673138,
+            "unit": "ns/op\t10211966 B/op\t  100040 allocs/op",
+            "extra": "56 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/10000_books (github.com/billdaws/bookmanager/internal/storage/db) - ns/op",
+            "value": 23673138,
+            "unit": "ns/op",
+            "extra": "56 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/10000_books (github.com/billdaws/bookmanager/internal/storage/db) - B/op",
+            "value": 10211966,
+            "unit": "B/op",
+            "extra": "56 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/10000_books (github.com/billdaws/bookmanager/internal/storage/db) - allocs/op",
+            "value": 100040,
+            "unit": "allocs/op",
+            "extra": "56 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/100_books (github.com/billdaws/bookmanager/internal/storage/db)",
+            "value": 5608084,
+            "unit": "ns/op\t  237446 B/op\t    2352 allocs/op",
+            "extra": "213 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/100_books (github.com/billdaws/bookmanager/internal/storage/db) - ns/op",
+            "value": 5608084,
+            "unit": "ns/op",
+            "extra": "213 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/100_books (github.com/billdaws/bookmanager/internal/storage/db) - B/op",
+            "value": 237446,
+            "unit": "B/op",
+            "extra": "213 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/100_books (github.com/billdaws/bookmanager/internal/storage/db) - allocs/op",
+            "value": 2352,
+            "unit": "allocs/op",
+            "extra": "213 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/1000_books (github.com/billdaws/bookmanager/internal/storage/db)",
+            "value": 37210097,
+            "unit": "ns/op\t  882689 B/op\t    6857 allocs/op",
+            "extra": "31 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/1000_books (github.com/billdaws/bookmanager/internal/storage/db) - ns/op",
+            "value": 37210097,
+            "unit": "ns/op",
+            "extra": "31 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/1000_books (github.com/billdaws/bookmanager/internal/storage/db) - B/op",
+            "value": 882689,
+            "unit": "B/op",
+            "extra": "31 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/1000_books (github.com/billdaws/bookmanager/internal/storage/db) - allocs/op",
+            "value": 6857,
+            "unit": "allocs/op",
+            "extra": "31 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/10000_books (github.com/billdaws/bookmanager/internal/storage/db)",
+            "value": 345388625,
+            "unit": "ns/op\t 8109682 B/op\t   52090 allocs/op",
+            "extra": "3 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/10000_books (github.com/billdaws/bookmanager/internal/storage/db) - ns/op",
+            "value": 345388625,
+            "unit": "ns/op",
+            "extra": "3 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/10000_books (github.com/billdaws/bookmanager/internal/storage/db) - B/op",
+            "value": 8109682,
+            "unit": "B/op",
+            "extra": "3 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/10000_books (github.com/billdaws/bookmanager/internal/storage/db) - allocs/op",
+            "value": 52090,
+            "unit": "allocs/op",
+            "extra": "3 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks_Concurrent (github.com/billdaws/bookmanager/internal/storage/db)",
+            "value": 14770961,
+            "unit": "ns/op\t10211977 B/op\t  100040 allocs/op",
+            "extra": "82 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks_Concurrent (github.com/billdaws/bookmanager/internal/storage/db) - ns/op",
+            "value": 14770961,
+            "unit": "ns/op",
+            "extra": "82 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks_Concurrent (github.com/billdaws/bookmanager/internal/storage/db) - B/op",
+            "value": 10211977,
+            "unit": "B/op",
+            "extra": "82 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks_Concurrent (github.com/billdaws/bookmanager/internal/storage/db) - allocs/op",
+            "value": 100040,
+            "unit": "allocs/op",
+            "extra": "82 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/empty (github.com/billdaws/bookmanager/internal/web)",
+            "value": 2.818,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "425368496 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/empty (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 2.818,
+            "unit": "ns/op",
+            "extra": "425368496 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/empty (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "425368496 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/empty (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "425368496 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/bare_word (github.com/billdaws/bookmanager/internal/web)",
+            "value": 2029669,
+            "unit": "ns/op\t 1760189 B/op\t   30006 allocs/op",
+            "extra": "561 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/bare_word (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 2029669,
+            "unit": "ns/op",
+            "extra": "561 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/bare_word (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 1760189,
+            "unit": "B/op",
+            "extra": "561 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/bare_word (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 30006,
+            "unit": "allocs/op",
+            "extra": "561 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/field_title (github.com/billdaws/bookmanager/internal/web)",
+            "value": 1498082,
+            "unit": "ns/op\t 1608298 B/op\t   20008 allocs/op",
+            "extra": "795 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/field_title (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 1498082,
+            "unit": "ns/op",
+            "extra": "795 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/field_title (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 1608298,
+            "unit": "B/op",
+            "extra": "795 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/field_title (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 20008,
+            "unit": "allocs/op",
+            "extra": "795 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/field_filename (github.com/billdaws/bookmanager/internal/web)",
+            "value": 565262,
+            "unit": "ns/op\t 1368312 B/op\t       9 allocs/op",
+            "extra": "1785 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/field_filename (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 565262,
+            "unit": "ns/op",
+            "extra": "1785 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/field_filename (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 1368312,
+            "unit": "B/op",
+            "extra": "1785 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/field_filename (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1785 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/no_match (github.com/billdaws/bookmanager/internal/web)",
+            "value": 1576855,
+            "unit": "ns/op\t 1688312 B/op\t   20009 allocs/op",
+            "extra": "726 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/no_match (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 1576855,
+            "unit": "ns/op",
+            "extra": "726 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/no_match (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 1688312,
+            "unit": "B/op",
+            "extra": "726 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkApplyQuery/no_match (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 20009,
+            "unit": "allocs/op",
+            "extra": "726 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/100_books (github.com/billdaws/bookmanager/internal/web)",
+            "value": 6510636,
+            "unit": "ns/op\t 5382743 B/op\t   30619 allocs/op",
+            "extra": "189 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/100_books (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 6510636,
+            "unit": "ns/op",
+            "extra": "189 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/100_books (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 5382743,
+            "unit": "B/op",
+            "extra": "189 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/100_books (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 30619,
+            "unit": "allocs/op",
+            "extra": "189 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/1000_books (github.com/billdaws/bookmanager/internal/web)",
+            "value": 17307921,
+            "unit": "ns/op\t11776017 B/op\t   71338 allocs/op",
+            "extra": "68 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/1000_books (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 17307921,
+            "unit": "ns/op",
+            "extra": "68 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/1000_books (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 11776017,
+            "unit": "B/op",
+            "extra": "68 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/1000_books (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 71338,
+            "unit": "allocs/op",
+            "extra": "68 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/10000_books (github.com/billdaws/bookmanager/internal/web)",
+            "value": 62186759,
+            "unit": "ns/op\t24704518 B/op\t  188423 allocs/op",
+            "extra": "20 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/10000_books (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 62186759,
+            "unit": "ns/op",
+            "extra": "20 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/10000_books (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 24704518,
+            "unit": "B/op",
+            "extra": "20 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibrary/10000_books (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 188423,
+            "unit": "allocs/op",
+            "extra": "20 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibraryConcurrent (github.com/billdaws/bookmanager/internal/web)",
+            "value": 36810380,
+            "unit": "ns/op\t24700972 B/op\t  188417 allocs/op",
+            "extra": "33 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibraryConcurrent (github.com/billdaws/bookmanager/internal/web) - ns/op",
+            "value": 36810380,
+            "unit": "ns/op",
+            "extra": "33 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibraryConcurrent (github.com/billdaws/bookmanager/internal/web) - B/op",
+            "value": 24700972,
+            "unit": "B/op",
+            "extra": "33 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkHandleLibraryConcurrent (github.com/billdaws/bookmanager/internal/web) - allocs/op",
+            "value": 188417,
             "unit": "allocs/op",
             "extra": "33 times\n2 procs"
           }
