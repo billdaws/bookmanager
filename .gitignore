@@ -53,3 +53,6 @@ testdata
 *.db-shm
 *.db-wal
 internal/web/static/sources.generated.css
+
+# Claude
+.claude/settings.local.json
