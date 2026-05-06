@@ -13,7 +13,7 @@
   - We should add a concept of "actions" or "mutations" that allows users to apply
     sanitizations like this as they want, but probably not by default
     
-- series visualization/aggregation
+- github pages site with docs etc.
 
 ## Bugs
 
