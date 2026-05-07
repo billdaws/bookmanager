@@ -37,7 +37,7 @@ func newServerWithEmail(t *testing.T) string {
 
 	bridge := events.NewEventBridge(nil)
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, noopPoller{}, sender); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}, noopPoller{}, noopPoller{}, sender); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 

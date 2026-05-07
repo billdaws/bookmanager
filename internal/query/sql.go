@@ -21,8 +21,8 @@ func exprToSQL(e Expr) (string, []any) {
 	case FieldExpr:
 		v := "%" + strings.ToLower(ex.Value) + "%"
 		switch ex.Field {
-		case "author", "authors":
-			return "LOWER(COALESCE(authors,'')) LIKE ?", []any{v}
+		case "author", "authors", "creator", "creators":
+			return "(LOWER(COALESCE(authors,'')) LIKE ? OR LOWER(filename) LIKE ?)", []any{v, v}
 		case "title":
 			return "LOWER(COALESCE(title,'')) LIKE ?", []any{v}
 		case "year":

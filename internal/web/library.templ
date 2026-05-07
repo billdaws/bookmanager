@@ -2,6 +2,8 @@ package web
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/templui/templui/components/input"
 )
 
@@ -44,6 +46,11 @@ templ LibraryPage(data libraryPageData) {
 					</details>
 				</div>
 			</div>
+			if data.ReviewCount > 0 {
+				<a href={ templ.SafeURL("/library/" + data.Library.ID + "/review") } class="inline-block mb-3 text-sm text-amber-600 hover:underline">
+					{ strconv.Itoa(data.ReviewCount) } comic(s) pending series review →
+				</a>
+			}
 			if data.SyncError != "" {
 				<p class="text-destructive text-sm mb-4">sync error: { data.SyncError }</p>
 			}

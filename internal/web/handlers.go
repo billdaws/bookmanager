@@ -28,15 +28,21 @@ type metadataPoller interface {
 	Status() (running bool, completed, total int)
 }
 
+// comicvinePoller is the subset of events.ComicVinePoller used by the web layer.
+type comicvinePoller interface {
+	RunNow()
+}
+
 // allStores is the full set of storage methods used across all web handlers.
 type allStores interface {
 	libraryStore
 	recipientStore
 	sendStore
+	comicvineReviewStore
 }
 
 // Register wires up all routes on mux.
-func Register(mux *http.ServeMux, store allStores, bridge *events.EventBridge, poller metadataPoller, sender emailSender) error {
+func Register(mux *http.ServeMux, store allStores, bridge *events.EventBridge, poller metadataPoller, cvPoller comicvinePoller, cvReview comicvineReviewAssigner, sender emailSender) error {
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		return fmt.Errorf("static fs: %w", err)
@@ -47,7 +53,7 @@ func Register(mux *http.ServeMux, store allStores, bridge *events.EventBridge, p
 	mux.HandleFunc("GET /", handleIndex(store))
 	mux.HandleFunc("GET /events", handleJobEvents(poller, bridge))
 	mux.HandleFunc("GET /library/new", handleLibraryNew())
-	mux.HandleFunc("POST /library", handleCreateLibrary(store, bridge, poller))
+	mux.HandleFunc("POST /library", handleCreateLibrary(store, bridge, poller, cvPoller))
 	mux.HandleFunc("GET /library/{id}", handleLibrary(store))
 	mux.HandleFunc("GET /library/{id}/events", handleLibraryEvents(store, bridge))
 	mux.HandleFunc("GET /library/{id}/series/new", handleSeriesNew(store))
@@ -62,6 +68,8 @@ func Register(mux *http.ServeMux, store allStores, bridge *events.EventBridge, p
 	mux.HandleFunc("GET /library/{id}/book/{bookID}/cover", handleBookCover(store))
 	mux.HandleFunc("GET /library/{id}/book/{bookID}/send", handleBookSendPage(store))
 	mux.HandleFunc("POST /library/{id}/book/{bookID}/send", handleBookSend(store, sender))
+	mux.HandleFunc("GET /library/{id}/review", handleComicReview(store))
+	mux.HandleFunc("POST /library/{id}/review/{bookID}", handleComicReviewPost(store, cvReview, bridge))
 	mux.HandleFunc("GET /recipients", handleRecipients(store))
 	mux.HandleFunc("GET /recipients/new", handleRecipientNew())
 	mux.HandleFunc("POST /recipients", handleCreateRecipient(store))

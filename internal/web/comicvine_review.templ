@@ -1,0 +1,65 @@
+package web
+
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/templui/templui/components/button"
+)
+
+templ ComicReviewPage(data reviewPageData) {
+	@layout("Review — " + data.Library.Name) {
+		<main class="container mx-auto p-8 max-w-3xl">
+			<a href={ templ.SafeURL("/library/" + data.Library.ID) } class="text-sm text-muted-foreground hover:underline mb-4 inline-block">← { data.Library.Name }</a>
+			<h1 class="text-2xl font-bold mb-2">Pending series review</h1>
+			<p class="text-sm text-muted-foreground mb-6">
+				These comics could not be confidently matched to a ComicVine series.
+				Pick the correct series for each, or dismiss to skip it.
+			</p>
+			if len(data.Items) == 0 {
+				<p class="text-muted-foreground">No comics are waiting for review.</p>
+			}
+			<div class="space-y-8">
+				for _, item := range data.Items {
+					<section class="border rounded-lg p-4">
+						<p class="font-medium mb-1">{ item.Book.Filename }</p>
+						<p class="text-sm text-muted-foreground mb-4">Searched for: <span class="font-mono">{ item.SearchTerm }</span></p>
+						if len(item.Candidates) == 0 {
+							<p class="text-sm text-muted-foreground mb-3">No cached candidates — search results have expired.</p>
+						} else {
+							<div class="space-y-2 mb-3">
+								for _, c := range item.Candidates {
+									<form method="POST" action={ templ.SafeURL("/library/" + data.Library.ID + "/review/" + item.Book.ID) }>
+										<input type="hidden" name="volume_id" value={ strconv.Itoa(c.Volume.ID) }/>
+										<div class="flex items-center justify-between border rounded p-3 hover:bg-accent/50">
+											<div class="flex-1 min-w-0 mr-4">
+												<p class="font-medium text-sm">{ c.Volume.Name }</p>
+												<p class="text-xs text-muted-foreground">
+													{ c.Volume.StartYear }
+													if c.Volume.Publisher != "" {
+														{ " · " + c.Volume.Publisher }
+													}
+													{ " · " + fmt.Sprintf("%d issues", c.Volume.CountOfIssues) }
+													{ " · " + fmt.Sprintf("%.0f%% match", c.Score*100) }
+												</p>
+											</div>
+											@button.Button(button.Props{Type: button.TypeSubmit}) {
+												Pick this series
+											}
+										</div>
+									</form>
+								}
+							</div>
+						}
+						<form method="POST" action={ templ.SafeURL("/library/" + data.Library.ID + "/review/" + item.Book.ID) }>
+							<input type="hidden" name="dismiss" value="1"/>
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline}) {
+								Dismiss
+							}
+						</form>
+					</section>
+				}
+			</div>
+		</main>
+	}
+}

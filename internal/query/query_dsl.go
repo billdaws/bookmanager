@@ -316,8 +316,9 @@ func Match(expr Expr, f Fields) bool {
 	case FieldExpr:
 		q := strings.ToLower(e.Value)
 		switch e.Field {
-		case "author", "authors":
-			return strings.Contains(strings.ToLower(f.Authors), q)
+		case "author", "authors", "creator", "creators":
+			return strings.Contains(strings.ToLower(f.Authors), q) ||
+				strings.Contains(strings.ToLower(f.Filename), q)
 		case "title":
 			return strings.Contains(strings.ToLower(f.Title), q)
 		case "year":

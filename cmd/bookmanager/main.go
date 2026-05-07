@@ -11,6 +11,7 @@ import (
 	"github.com/billdaws/bookmanager/internal/events"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 	"github.com/billdaws/bookmanager/internal/web"
+	cv "github.com/billdaws/comicvine"
 	"github.com/codingconcepts/env"
 )
 
@@ -25,6 +26,8 @@ type config struct {
 	ResendAPIKey      string        `env:"BOOKMANAGER_RESEND_API_KEY"`
 	FromEmail         string        `env:"BOOKMANAGER_FROM_EMAIL"`
 	EncryptionKey     string        `env:"BOOKMANAGER_ENCRYPTION_KEY"`
+	ComicVineAPIKey   string        `env:"BOOKMANAGER_COMICVINE_API_KEY"`
+	ComicVineInterval time.Duration `env:"BOOKMANAGER_COMICVINE_INTERVAL" default:"1h"`
 }
 
 func main() {
@@ -61,6 +64,13 @@ func main() {
 	metadataPoller := events.NewMetadataPoller(store, bridge, cfg.MetadataInterval)
 	go metadataPoller.Run(ctx)
 
+	var cvClient *cv.Client
+	if cfg.ComicVineAPIKey != "" {
+		cvClient = cv.NewClient("https://comicvine.gamespot.com/api", cfg.ComicVineAPIKey)
+	}
+	cvPoller := events.NewComicVinePoller(store, cvClient, bridge, cfg.ComicVineInterval)
+	go cvPoller.Run(ctx)
+
 	libs, err := store.ListLibraries(ctx)
 	if err != nil {
 		log.Fatalf("list libraries: %v", err)
@@ -72,7 +82,7 @@ func main() {
 	emailSvc := email.NewResendSender(cfg.ResendAPIKey, cfg.FromEmail)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, metadataPoller, emailSvc); err != nil {
+	if err := web.Register(mux, store, bridge, metadataPoller, cvPoller, cvPoller, emailSvc); err != nil {
 		log.Fatalf("web: %v", err)
 	}
 

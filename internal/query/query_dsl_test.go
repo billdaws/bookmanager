@@ -20,6 +20,7 @@ func TestParse(t *testing.T) {
 
 		// Field terms
 		{"author:tolkien", false, false},
+		{"creator:tolkien", false, false},
 		{`title:"the hobbit"`, false, false},
 		{"year:1954", false, false},
 		{"filename:book.epub", false, false},
@@ -171,10 +172,14 @@ func TestMatch(t *testing.T) {
 		{"epub", true},
 		{"carroll", false},
 
-		// Field: author
+		// Field: author / creator (also matches filename, for comics with empty Authors field)
 		{"author:tolkien", true},
 		{"author:carroll", false},
 		{"author:TOLKIEN", true},
+		{"author:hobbit", true},   // "hobbit" is in the filename
+		{"creator:tolkien", true}, // creator: is an alias for author:
+		{"creator:carroll", false},
+		{"creator:hobbit", true}, // falls back to filename
 
 		// Field: title
 		{"title:hobbit", true},

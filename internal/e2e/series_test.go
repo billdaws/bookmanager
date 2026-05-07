@@ -101,7 +101,7 @@ func newServerWithSeriesLibrary(t *testing.T, seriesName string, nSeriesBooks, n
 
 	bridge := events.NewEventBridge(nil)
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, noopPoller{}, noopSender{}); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}, noopPoller{}, noopPoller{}, noopSender{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 

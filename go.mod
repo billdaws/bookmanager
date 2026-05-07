@@ -4,10 +4,12 @@ go 1.26.1
 
 require (
 	github.com/a-h/templ v0.3.1001
+	github.com/billdaws/comicvine v0.2.0
 	github.com/billdaws/epub v1.0.2
 	github.com/codingconcepts/env v0.0.0-20240618133406-5b0845441187
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
+	github.com/nwaples/rardecode v1.1.3
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/resend/resend-go/v2 v2.28.0
@@ -38,7 +40,7 @@ require (
 	github.com/ysmood/leakless v0.9.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

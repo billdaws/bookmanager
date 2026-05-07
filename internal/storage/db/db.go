@@ -1,6 +1,7 @@
 package db
 
 import (
+	"archive/zip"
 	"context"
 	"database/sql"
 	"embed"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +22,7 @@ import (
 	"github.com/billdaws/bookmanager/internal/scanner"
 	"github.com/billdaws/epub"
 	"github.com/google/uuid"
+	"github.com/nwaples/rardecode"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	pdfmodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pressly/goose/v3"
@@ -761,8 +764,62 @@ func extractMetadata(path string) (title, authors, publicationDate, coverPath st
 		return extractEpubMetadata(path)
 	case ".pdf":
 		title, authors, publicationDate = extractPDFMetadata(path)
+	case ".cbz":
+		coverPath = extractCBZCover(path)
+	case ".cbr":
+		coverPath = extractCBRCover(path)
 	}
 	return
+}
+
+func isImageFile(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".jpg", ".jpeg", ".png", ".webp":
+		return true
+	}
+	return false
+}
+
+func extractCBZCover(path string) string {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return ""
+	}
+	defer zr.Close()
+	var images []string
+	for _, f := range zr.File {
+		if isImageFile(f.Name) {
+			images = append(images, f.Name)
+		}
+	}
+	slices.Sort(images)
+	if len(images) == 0 {
+		return ""
+	}
+	return images[0]
+}
+
+func extractCBRCover(path string) string {
+	rr, err := rardecode.OpenReader(path, "")
+	if err != nil {
+		return ""
+	}
+	defer rr.Close()
+	var images []string
+	for {
+		hdr, err := rr.Next()
+		if err != nil {
+			break
+		}
+		if isImageFile(hdr.Name) {
+			images = append(images, hdr.Name)
+		}
+	}
+	slices.Sort(images)
+	if len(images) == 0 {
+		return ""
+	}
+	return images[0]
 }
 
 func extractPDFMetadata(path string) (title, author string, _ string) {

@@ -16,6 +16,7 @@ import (
 	"github.com/billdaws/bookmanager/internal/scanner"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 	"github.com/billdaws/bookmanager/internal/web"
+	cvpkg "github.com/billdaws/comicvine"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 )
@@ -26,6 +27,12 @@ type noopPoller struct{}
 
 func (noopPoller) RunNow()                                      {}
 func (noopPoller) Status() (running bool, completed, total int) { return false, 0, 0 }
+func (noopPoller) CachedSearchVolumes(_ context.Context, _ string) ([]cvpkg.Volume, error) {
+	return nil, nil
+}
+func (noopPoller) CachedGetIssues(_ context.Context, _ int) ([]cvpkg.Issue, error) {
+	return nil, nil
+}
 
 type noopSender struct{}
 
@@ -68,7 +75,7 @@ func newServer(t *testing.T) string {
 	bridge := events.NewEventBridge(nil)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, noopPoller{}, noopSender{}); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}, noopPoller{}, noopPoller{}, noopSender{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -114,7 +121,7 @@ func newServerWithPoller(t *testing.T, interval time.Duration) string {
 	poller.Register(ctx)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, noopPoller{}, noopSender{}); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}, noopPoller{}, noopPoller{}, noopSender{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -176,7 +183,7 @@ func newServerWithStaleBooks(t *testing.T, dir string) (string, string, []string
 	metaPoller := events.NewMetadataPoller(store, bridge, 100*time.Millisecond)
 
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, metaPoller, noopSender{}); err != nil {
+	if err := web.Register(mux, store, bridge, metaPoller, noopPoller{}, noopPoller{}, noopSender{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -227,7 +234,7 @@ func newServerWithLargeLibrary(t *testing.T, n int) (string, string) {
 
 	bridge := events.NewEventBridge(nil)
 	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, noopPoller{}, noopSender{}); err != nil {
+	if err := web.Register(mux, store, bridge, noopPoller{}, noopPoller{}, noopPoller{}, noopSender{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 

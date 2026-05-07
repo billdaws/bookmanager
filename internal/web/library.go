@@ -18,6 +18,7 @@ import (
 	"github.com/billdaws/bookmanager/internal/query"
 	"github.com/billdaws/bookmanager/internal/scanner"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
+	"github.com/nwaples/rardecode"
 	"golang.org/x/image/draw"
 )
 
@@ -40,6 +41,7 @@ type libraryStore interface {
 	AssignBookToSeries(ctx context.Context, bookID, seriesID string, index *int, display string) error
 	RemoveBookFromSeries(ctx context.Context, bookID string) error
 	ListLibraryItems(ctx context.Context, libraryID string, cursor storage.ReadableCursor, filter query.Expr, limit int) (storage.LibraryItemsPage, error)
+	CountComicsInReviewQueue(ctx context.Context, libraryID string) (int, error)
 }
 
 // Readable is either a standalone Book or a Series. Exactly one field is non-nil.
@@ -64,13 +66,14 @@ type setupPageData struct {
 }
 
 type libraryPageData struct {
-	Library    *storage.Library
-	Readables  []Readable
-	AllSeries  []storage.SeriesSummary
-	NextCursor string // empty = no more pages (standalone books only)
-	SyncError  string
-	Query      string
-	QueryError string
+	Library     *storage.Library
+	Readables   []Readable
+	AllSeries   []storage.SeriesSummary
+	NextCursor  string // empty = no more pages (standalone books only)
+	SyncError   string
+	Query       string
+	QueryError  string
+	ReviewCount int
 }
 
 type confirmDeletePageData struct {
@@ -79,8 +82,19 @@ type confirmDeletePageData struct {
 }
 
 func bookDisplayLabel(b storage.Book) string {
-	if b.Title == "" || b.Authors == "" {
+	// Books assigned to a series have a display label (e.g. "#1" for comics,
+	// "Vol. 1" for collected editions). Prefer that over the filename.
+	if b.SeriesDisplay != "" {
+		if b.Title != "" {
+			return b.SeriesDisplay + " \u2014 " + b.Title
+		}
+		return b.SeriesDisplay
+	}
+	if b.Title == "" {
 		return b.Filename
+	}
+	if b.Authors == "" {
+		return b.Title
 	}
 	if len(b.PublicationDate) >= 4 {
 		return b.Authors + " - " + b.Title + " (" + b.PublicationDate[:4] + ")"
@@ -143,7 +157,7 @@ func handleLibraryNew() http.HandlerFunc {
 	}
 }
 
-func handleCreateLibrary(store libraryStore, bridge *events.EventBridge, metadataJob metadataPoller) http.HandlerFunc {
+func handleCreateLibrary(store libraryStore, bridge *events.EventBridge, metadataJob metadataPoller, cvJob comicvinePoller) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("handleCreateLibrary: received %s %s", r.Method, r.URL)
 
@@ -202,6 +216,7 @@ func handleCreateLibrary(store libraryStore, bridge *events.EventBridge, metadat
 
 		bridge.Publish(events.TopicLibraryCreated, &storage.Library{ID: id, Name: name, Directory: dir})
 		metadataJob.RunNow()
+		cvJob.RunNow()
 		http.Redirect(w, r, "/library/"+id, http.StatusSeeOther)
 	}
 }
@@ -407,6 +422,12 @@ func handleLibrary(store libraryStore) http.HandlerFunc {
 		data.AllSeries = allSeries
 		data.NextCursor = nextCursor
 
+		reviewCount, err := store.CountComicsInReviewQueue(r.Context(), id)
+		if err != nil {
+			log.Printf("handleLibrary: CountComicsInReviewQueue(%s): %v", id, err)
+		}
+		data.ReviewCount = reviewCount
+
 		if err := LibraryPage(data).Render(r.Context(), w); err != nil {
 			log.Printf("handleLibrary: render error: %v", err)
 			http.Error(w, "render error", http.StatusInternalServerError)
@@ -491,8 +512,32 @@ func handleBookCover(store libraryStore) http.HandlerFunc {
 			return
 		}
 
-		epubPath := filepath.Join(lib.Directory, book.Filename)
-		zr, err := zip.OpenReader(epubPath)
+		bookPath := filepath.Join(lib.Directory, book.Filename)
+
+		if strings.ToLower(filepath.Ext(book.Filename)) == ".cbr" {
+			rr, err := rardecode.OpenReader(bookPath, "")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			defer rr.Close()
+			for {
+				hdr, err := rr.Next()
+				if err != nil {
+					break
+				}
+				if hdr.Name == book.CoverPath {
+					w.Header().Set("Content-Type", "image/jpeg")
+					w.Header().Set("Cache-Control", "public, max-age=86400")
+					serveCoverThumbnail(w, rr)
+					return
+				}
+			}
+			http.NotFound(w, r)
+			return
+		}
+
+		zr, err := zip.OpenReader(bookPath)
 		if err != nil {
 			http.NotFound(w, r)
 			return
