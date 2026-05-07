@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778110821391,
+  "lastUpdate": 1778186572698,
   "repoUrl": "https://github.com/billdaws/bookmanager",
   "entries": {
     "Benchmark": [
@@ -11016,6 +11016,198 @@ window.BENCHMARK_DATA = {
             "value": 188415,
             "unit": "allocs/op",
             "extra": "31 times\n2 procs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "17349161+billdaws@users.noreply.github.com",
+            "name": "Bill Daws",
+            "username": "billdaws"
+          },
+          "committer": {
+            "email": "17349161+billdaws@users.noreply.github.com",
+            "name": "Bill Daws",
+            "username": "billdaws"
+          },
+          "distinct": true,
+          "id": "737fde9b2d1bfc410261a4f4ee3b15f6860269a6",
+          "message": "feat: comics with metadata and series discovery via files, comicvine, and confidence matching",
+          "timestamp": "2026-05-07T16:41:32-04:00",
+          "tree_id": "f2f56d9ee11246fda80daaede22b0c94cc858141",
+          "url": "https://github.com/billdaws/bookmanager/commit/737fde9b2d1bfc410261a4f4ee3b15f6860269a6"
+        },
+        "date": 1778186572329,
+        "tool": "go",
+        "benches": [
+          {
+            "name": "BenchmarkListBooks/100_books",
+            "value": 282908,
+            "unit": "ns/op\t   86009 B/op\t    1029 allocs/op",
+            "extra": "4372 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/100_books - ns/op",
+            "value": 282908,
+            "unit": "ns/op",
+            "extra": "4372 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/100_books - B/op",
+            "value": 86009,
+            "unit": "B/op",
+            "extra": "4372 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/100_books - allocs/op",
+            "value": 1029,
+            "unit": "allocs/op",
+            "extra": "4372 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/1000_books",
+            "value": 2450910,
+            "unit": "ns/op\t  946969 B/op\t   10033 allocs/op",
+            "extra": "500 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/1000_books - ns/op",
+            "value": 2450910,
+            "unit": "ns/op",
+            "extra": "500 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/1000_books - B/op",
+            "value": 946969,
+            "unit": "B/op",
+            "extra": "500 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/1000_books - allocs/op",
+            "value": 10033,
+            "unit": "allocs/op",
+            "extra": "500 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/10000_books",
+            "value": 24863630,
+            "unit": "ns/op\t10211963 B/op\t  100040 allocs/op",
+            "extra": "55 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/10000_books - ns/op",
+            "value": 24863630,
+            "unit": "ns/op",
+            "extra": "55 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/10000_books - B/op",
+            "value": 10211963,
+            "unit": "B/op",
+            "extra": "55 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks/10000_books - allocs/op",
+            "value": 100040,
+            "unit": "allocs/op",
+            "extra": "55 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/100_books",
+            "value": 7776471,
+            "unit": "ns/op\t  310120 B/op\t    2800 allocs/op",
+            "extra": "156 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/100_books - ns/op",
+            "value": 7776471,
+            "unit": "ns/op",
+            "extra": "156 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/100_books - B/op",
+            "value": 310120,
+            "unit": "B/op",
+            "extra": "156 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/100_books - allocs/op",
+            "value": 2800,
+            "unit": "allocs/op",
+            "extra": "156 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/1000_books",
+            "value": 38016983,
+            "unit": "ns/op\t  899625 B/op\t    7305 allocs/op",
+            "extra": "31 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/1000_books - ns/op",
+            "value": 38016983,
+            "unit": "ns/op",
+            "extra": "31 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/1000_books - B/op",
+            "value": 899625,
+            "unit": "B/op",
+            "extra": "31 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/1000_books - allocs/op",
+            "value": 7305,
+            "unit": "allocs/op",
+            "extra": "31 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/10000_books",
+            "value": 334449792,
+            "unit": "ns/op\t 8128136 B/op\t   52538 allocs/op",
+            "extra": "3 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/10000_books - ns/op",
+            "value": 334449792,
+            "unit": "ns/op",
+            "extra": "3 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/10000_books - B/op",
+            "value": 8128136,
+            "unit": "B/op",
+            "extra": "3 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkCreateLibraryWithBooks/10000_books - allocs/op",
+            "value": 52538,
+            "unit": "allocs/op",
+            "extra": "3 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks_Concurrent",
+            "value": 15813600,
+            "unit": "ns/op\t10211992 B/op\t  100040 allocs/op",
+            "extra": "66 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks_Concurrent - ns/op",
+            "value": 15813600,
+            "unit": "ns/op",
+            "extra": "66 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks_Concurrent - B/op",
+            "value": 10211992,
+            "unit": "B/op",
+            "extra": "66 times\n2 procs"
+          },
+          {
+            "name": "BenchmarkListBooks_Concurrent - allocs/op",
+            "value": 100040,
+            "unit": "allocs/op",
+            "extra": "66 times\n2 procs"
           }
         ]
       }
