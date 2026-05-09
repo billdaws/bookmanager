@@ -82,20 +82,10 @@ func writeCBZ(w io.Writer, filename string, data []byte) error {
 	return zw.Close()
 }
 
-// crc16 computes CRC-16 with polynomial 0x8005, MSB-first.
-func crc16(data []byte) uint16 {
-	var crc uint16
-	for _, b := range data {
-		for i := 0; i < 8; i++ {
-			if (crc^(uint16(b)<<8))&0x8000 != 0 {
-				crc = (crc << 1) ^ 0x8005
-			} else {
-				crc <<= 1
-			}
-			b <<= 1
-		}
-	}
-	return crc
+// blockCRC returns the RAR4 block header checksum: the low 16 bits of CRC-32 IEEE.
+// rardecode validates headers with uint16(crc32.ChecksumIEEE(headerBytes)).
+func blockCRC(data []byte) uint16 {
+	return uint16(crc32.ChecksumIEEE(data))
 }
 
 // writeRAR4 produces a minimal RAR4 archive containing one stored file.
@@ -113,7 +103,7 @@ func writeRAR4(w io.Writer, filename string, data []byte) error {
 		0x00, 0x00, // RESERVED1
 		0x00, 0x00, 0x00, 0x00, // RESERVED2
 	}
-	if err := binary.Write(w, binary.LittleEndian, crc16(archBody)); err != nil {
+	if err := binary.Write(w, binary.LittleEndian, blockCRC(archBody)); err != nil {
 		return err
 	}
 	if _, err := w.Write(archBody); err != nil {
@@ -127,7 +117,7 @@ func writeRAR4(w io.Writer, filename string, data []byte) error {
 
 	var fhBuf bytes.Buffer
 	fhBuf.WriteByte(0x74)                                             // HEAD_TYPE
-	binary.Write(&fhBuf, binary.LittleEndian, uint16(0x0000))         // HEAD_FLAGS
+	binary.Write(&fhBuf, binary.LittleEndian, uint16(0x8000))         // HEAD_FLAGS (blockHasData)
 	binary.Write(&fhBuf, binary.LittleEndian, headSize)               // HEAD_SIZE
 	binary.Write(&fhBuf, binary.LittleEndian, uint32(len(data)))      // PACK_SIZE
 	binary.Write(&fhBuf, binary.LittleEndian, uint32(len(data)))      // UNP_SIZE
@@ -140,7 +130,7 @@ func writeRAR4(w io.Writer, filename string, data []byte) error {
 	binary.Write(&fhBuf, binary.LittleEndian, uint32(0x20))           // ATTR
 	fhBuf.Write(nameBytes)                                            // filename
 
-	if err := binary.Write(w, binary.LittleEndian, crc16(fhBuf.Bytes())); err != nil {
+	if err := binary.Write(w, binary.LittleEndian, blockCRC(fhBuf.Bytes())); err != nil {
 		return err
 	}
 	if _, err := w.Write(fhBuf.Bytes()); err != nil {
@@ -158,7 +148,7 @@ func writeRAR4(w io.Writer, filename string, data []byte) error {
 		0x00, 0x00, // HEAD_FLAGS
 		0x07, 0x00, // HEAD_SIZE = 7
 	}
-	if err := binary.Write(w, binary.LittleEndian, crc16(eoaBody)); err != nil {
+	if err := binary.Write(w, binary.LittleEndian, blockCRC(eoaBody)); err != nil {
 		return err
 	}
 	if _, err := w.Write(eoaBody); err != nil {

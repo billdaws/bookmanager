@@ -49,7 +49,7 @@ bench-ci: ## GOMAXPROCS=2 matches the GitHub Actions ubuntu-latest runner (2 vCP
 
 test-e2e:
 	docker build -t bookmanager-e2e -f Dockerfile.e2e .
-	docker run --rm bookmanager-e2e | gotestfmt
+	docker run --rm bookmanager-e2e
 
 upgrade-htmx:
 	$(eval version := $(shell curl -fsSL https://registry.npmjs.org/htmx.org/latest | jq -r '.version'))

@@ -11,6 +11,16 @@ import (
 	"time"
 )
 
+// firstEPUB returns the first .epub filename in files, or "" if none.
+func firstEPUB(files []string) string {
+	for _, f := range files {
+		if strings.HasSuffix(strings.ToLower(f), ".epub") {
+			return f
+		}
+	}
+	return ""
+}
+
 // TestCreateLibrary navigates through the UI to create a library and verifies
 // it appears on the index page.
 func TestCreateLibrary(t *testing.T) {
@@ -322,26 +332,29 @@ func TestMetadataBackfill(t *testing.T) {
 	t.Parallel()
 	dir := symlinkTestdata(t)
 	base, libID, files, startPoller := newServerWithStaleBooks(t, dir)
-	if len(files) == 0 {
-		t.Fatal("no test fixtures in testdata/raw")
+	// Use an epub file: only epubs have embedded author/title that change the
+	// display label after backfill. CBZ/CBR files have no embedded metadata.
+	epubFile := firstEPUB(files)
+	if epubFile == "" {
+		t.Fatal("no epub test fixtures in testdata/raw")
 	}
 	page := newPage(t)
 
 	// Navigate to the library page. Books have cleared metadata, so they render
 	// as filenames only.
 	page.MustNavigate(base + "/library/" + libID)
-	page.MustElementR("#book-list", files[0])
+	page.MustElementR("#book-list", epubFile)
 
 	// Start the metadata poller now that the stale state is confirmed in the
 	// browser. It will detect the stale key, re-extract metadata, and push an
 	// SSE update that replaces filename labels with author/title labels.
 	startPoller()
 
-	// The first book's filename disappears from the list once its metadata is
+	// The epub's filename disappears from the list once its metadata is
 	// restored — bookDisplayLabel switches to "Author - Title (year)" format.
 	page.MustWait(fmt.Sprintf(
 		`() => !document.querySelector('#book-list').textContent.includes(%q)`,
-		files[0],
+		epubFile,
 	))
 
 	// The indicator must be hidden again once the job has finished.
