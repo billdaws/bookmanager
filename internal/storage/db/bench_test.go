@@ -215,13 +215,64 @@ func BenchmarkBackfillMetadata(b *testing.B) {
 	}
 }
 
+// BenchmarkBackfillMetadata_TimeToFirstWrite measures the elapsed time between
+// the start of BackfillMetadata and the first onExtracted callback, which now
+// fires after the first DB write. This is a proxy for time-to-first-UI-update.
+func BenchmarkBackfillMetadata_TimeToFirstWrite(b *testing.B) {
+	src := epubFixture(b)
+	ctx := context.Background()
+	const bookCount = 50
+
+	dir := b.TempDir()
+	filenames := make([]string, bookCount)
+	for i := range bookCount {
+		fn := fmt.Sprintf("book-%04d.epub", i)
+		if err := os.Symlink(src, filepath.Join(dir, fn)); err != nil {
+			b.Fatalf("symlink: %v", err)
+		}
+		filenames[i] = fn
+	}
+
+	database, err := OpenDB(filepath.Join(b.TempDir(), "bench.db"))
+	if err != nil {
+		b.Fatalf("open db: %v", err)
+	}
+	b.Cleanup(func() { database.Close() })
+	store := NewStore(database)
+
+	id, err := store.CreateLibraryWithBooks(ctx, "Bench", dir, filenames)
+	if err != nil {
+		b.Fatalf("seed library: %v", err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		if _, err := database.ExecContext(ctx, "DELETE FROM metadata_sync"); err != nil {
+			b.Fatalf("clear metadata_sync: %v", err)
+		}
+		start := time.Now()
+		b.StartTimer()
+
+		var firstWrite time.Duration
+		if _, err := store.BackfillMetadata(ctx, id, dir, func() {
+			if firstWrite == 0 {
+				firstWrite = time.Since(start)
+			}
+		}); err != nil {
+			b.Fatal(err)
+		}
+		b.ReportMetric(float64(firstWrite.Milliseconds()), "ms/first-write")
+	}
+}
+
 // BenchmarkBackfillMetadata_BatchSize holds the book count fixed and sweeps
 // the batch size so you can read the speedup curve from a single run:
 //
 //	go test -bench=BenchmarkBackfillMetadata_BatchSize -benchtime=5s ./internal/storage/db/
 //
-// batch=1 is fully serial; batch=N is N goroutines extracting metadata in
-// parallel before the sequential DB write phase.
+// batch=N controls both the extractor concurrency and the write batch size.
 func BenchmarkBackfillMetadata_BatchSize(b *testing.B) {
 	src := epubFixture(b)
 	ctx := context.Background()
@@ -237,7 +288,7 @@ func BenchmarkBackfillMetadata_BatchSize(b *testing.B) {
 		filenames[i] = fn
 	}
 
-	for _, batchSize := range []int{1, 2, 5, 10, 25, 50, 100} {
+	for _, batchSize := range []int{10, 25, 50, 100, 200, 500} {
 		b.Run(fmt.Sprintf("batch_%03d", batchSize), func(b *testing.B) {
 			database, err := OpenDB(":memory:")
 			if err != nil {

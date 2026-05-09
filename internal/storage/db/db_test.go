@@ -347,6 +347,46 @@ func TestBackfillMetadata_SkipsFailingBook(t *testing.T) {
 	}
 }
 
+// TestBackfillMetadata_WritesProgressively verifies that onExtracted is called
+// only after each book has been written to the database, not merely after
+// extraction into memory.
+func TestBackfillMetadata_WritesProgressively(t *testing.T) {
+	s := openTestStore(t)
+	dir := t.TempDir()
+
+	id, err := s.CreateLibraryWithBooks(context.Background(), "Lib", dir, []string{"a.epub", "b.epub", "c.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var syncRowsSeen []int
+	onExtracted := func() {
+		var n int
+		if err := s.db.QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM metadata_sync`,
+		).Scan(&n); err != nil {
+			t.Errorf("query metadata_sync: %v", err)
+			return
+		}
+		syncRowsSeen = append(syncRowsSeen, n)
+	}
+
+	if _, err := s.BackfillMetadata(context.Background(), id, dir, onExtracted); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(syncRowsSeen) != 3 {
+		t.Fatalf("onExtracted called %d times, want 3", len(syncRowsSeen))
+	}
+	// Each callback should observe at least one committed sync row, proving
+	// that writes happen before the callback fires.
+	for i, n := range syncRowsSeen {
+		if n == 0 {
+			t.Errorf("callback %d: metadata_sync was empty — write had not yet committed", i+1)
+		}
+	}
+}
+
 // TestNormalizeAuthors_TrailingSemicolon verifies that a dc:creator value with a
 // trailing semicolon (e.g. "Andy Weir;") is normalised to a single clean author.
 func TestNormalizeAuthors_TrailingSemicolon(t *testing.T) {

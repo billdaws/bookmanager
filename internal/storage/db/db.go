@@ -417,8 +417,8 @@ func (s *Store) CountBooksNeedingMetadata(ctx context.Context) (int, error) {
 // than the current one. Fields listed in manual_overrides are skipped.
 // It returns the number of books processed (0 if everything was already up to date).
 // onExtracted, if non-nil, is called once per book immediately after its metadata
-// is extracted (before the final write transaction), allowing callers to track
-// extraction progress in real time.
+// is extracted and written to the database, allowing callers to track progress
+// in real time.
 func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string, onExtracted func()) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT b.id, b.filename, COALESCE(ms.manual_overrides, '{}')
@@ -452,16 +452,138 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string, onE
 		overrides                          map[string]bool
 	}
 
-	// Extract metadata for all stale books in parallel, bounded by metadataBatchSize.
-	// A semaphore keeps the pipeline full without the idle time at batch boundaries.
-	results := make([]extractedBook, len(stale))
+	// Producer-consumer pipeline: extractor goroutines (bounded by metadataBatchSize)
+	// send results to resultsCh; a writer goroutine collects them into batches and
+	// flushes each batch in a single transaction. Both sides run concurrently so the
+	// channel never backs up and memory usage stays bounded regardless of library size.
+	resultsCh := make(chan extractedBook, s.metadataBatchSize)
+
+	// Writer goroutine: accumulates up to metadataBatchSize results and writes each
+	// batch in a single transaction with per-book savepoints for error isolation.
+	// Batching amortises per-commit overhead; flushing incrementally means the DB is
+	// updated well before all extraction is complete.
+	writtenCh := make(chan int, 1)
+	go func() {
+		written := 0
+		batch := make([]extractedBook, 0, s.metadataBatchSize)
+
+		flush := func() {
+			if len(batch) == 0 {
+				return
+			}
+			tx, err := s.db.BeginTx(ctx, nil)
+			if err != nil {
+				log.Printf("metadata backfill: begin transaction: %v", err)
+				for range batch {
+					if onExtracted != nil {
+						onExtracted()
+					}
+				}
+				batch = batch[:0]
+				return
+			}
+			defer tx.Rollback()
+
+			upsertStmt, err := tx.PrepareContext(ctx, `
+				INSERT INTO metadata_sync (book_id, columns_attempted, manual_overrides)
+				VALUES (?, ?, '{}')
+				ON CONFLICT(book_id) DO UPDATE SET
+					columns_attempted = excluded.columns_attempted,
+					attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+					manual_overrides  = manual_overrides`)
+			if err != nil {
+				log.Printf("metadata backfill: prepare upsert: %v", err)
+				for range batch {
+					if onExtracted != nil {
+						onExtracted()
+					}
+				}
+				batch = batch[:0]
+				return
+			}
+			defer upsertStmt.Close()
+
+			for i, res := range batch {
+				sp := fmt.Sprintf("backfill_%d", i)
+				if _, err := tx.ExecContext(ctx, "SAVEPOINT "+sp); err != nil {
+					log.Printf("metadata backfill: savepoint for %s: %v", res.filename, err)
+					continue
+				}
+
+				writeErr := func() error {
+					var sets []string
+					var args []any
+					if !res.overrides["title"] {
+						sets = append(sets, "title = ?")
+						args = append(args, nilIfEmpty(res.title))
+					}
+					if !res.overrides["authors"] {
+						sets = append(sets, "authors = ?")
+						args = append(args, nilIfEmpty(res.authors))
+					}
+					if !res.overrides["publication_date"] {
+						sets = append(sets, "publication_date = ?")
+						args = append(args, nilIfEmpty(res.pubDate))
+					}
+					if !res.overrides["cover_path"] {
+						sets = append(sets, "cover_path = ?")
+						args = append(args, nilIfEmpty(res.coverPath))
+					}
+					if len(sets) > 0 {
+						args = append(args, res.id)
+						if _, err := tx.ExecContext(ctx,
+							"UPDATE books SET "+strings.Join(sets, ", ")+" WHERE id = ?",
+							args...,
+						); err != nil {
+							return fmt.Errorf("update books: %w", err)
+						}
+					}
+					if _, err := upsertStmt.ExecContext(ctx, res.id, currentColumnsKey); err != nil {
+						return fmt.Errorf("update metadata_sync: %w", err)
+					}
+					return nil
+				}()
+
+				if writeErr != nil {
+					log.Printf("metadata backfill: skipping %s: %v", res.filename, writeErr)
+					tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+sp)
+					tx.ExecContext(ctx, "RELEASE SAVEPOINT "+sp)
+					continue
+				}
+				tx.ExecContext(ctx, "RELEASE SAVEPOINT "+sp)
+				written++
+			}
+
+			if err := tx.Commit(); err != nil {
+				log.Printf("metadata backfill: commit batch: %v", err)
+			}
+
+			for range batch {
+				if onExtracted != nil {
+					onExtracted()
+				}
+			}
+			batch = batch[:0]
+		}
+
+		for res := range resultsCh {
+			batch = append(batch, res)
+			if len(batch) >= s.metadataBatchSize {
+				flush()
+			}
+		}
+		flush()
+		writtenCh <- written
+	}()
+
+	// Extractor goroutines: extract metadata in parallel and feed resultsCh.
+	var extractWg sync.WaitGroup
 	sem := make(chan struct{}, s.metadataBatchSize)
-	var wg sync.WaitGroup
 	for i, r := range stale {
-		wg.Add(1)
+		extractWg.Add(1)
 		sem <- struct{}{}
 		go func(i int, r bookRef) {
-			defer wg.Done()
+			defer extractWg.Done()
 			defer func() { <-sem }()
 			log.Printf("metadata backfill: [%d/%d] %s", i+1, len(stale), r.filename)
 			var overrides map[string]bool
@@ -469,97 +591,13 @@ func (s *Store) BackfillMetadata(ctx context.Context, libraryID, dir string, onE
 				overrides = map[string]bool{}
 			}
 			title, authors, pubDate, coverPath := extractMetadata(filepath.Join(dir, r.filename))
-			results[i] = extractedBook{r, title, authors, pubDate, coverPath, overrides}
-			if onExtracted != nil {
-				onExtracted()
-			}
+			resultsCh <- extractedBook{r, title, authors, pubDate, coverPath, overrides}
 		}(i, r)
 	}
-	wg.Wait()
+	extractWg.Wait()
+	close(resultsCh)
 
-	// Write all results in a single transaction to avoid per-row WAL commit
-	// overhead. Each book is wrapped in a savepoint so a failing write skips
-	// that book without rolling back the rest.
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("begin backfill transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	upsertStmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO metadata_sync (book_id, columns_attempted, manual_overrides)
-		VALUES (?, ?, '{}')
-		ON CONFLICT(book_id) DO UPDATE SET
-			columns_attempted = excluded.columns_attempted,
-			attempted_at      = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
-			manual_overrides  = manual_overrides`)
-	if err != nil {
-		return 0, fmt.Errorf("prepare metadata_sync upsert: %w", err)
-	}
-	defer upsertStmt.Close()
-
-	written := 0
-	for i, res := range results {
-		sp := fmt.Sprintf("backfill_%d", i)
-		if _, err := tx.ExecContext(ctx, "SAVEPOINT "+sp); err != nil {
-			return 0, fmt.Errorf("savepoint for %s: %w", res.filename, err)
-		}
-
-		writeErr := func() error {
-			var sets []string
-			var args []any
-			if !res.overrides["title"] {
-				sets = append(sets, "title = ?")
-				args = append(args, nilIfEmpty(res.title))
-			}
-			if !res.overrides["authors"] {
-				sets = append(sets, "authors = ?")
-				args = append(args, nilIfEmpty(res.authors))
-			}
-			if !res.overrides["publication_date"] {
-				sets = append(sets, "publication_date = ?")
-				args = append(args, nilIfEmpty(res.pubDate))
-			}
-			if !res.overrides["cover_path"] {
-				sets = append(sets, "cover_path = ?")
-				args = append(args, nilIfEmpty(res.coverPath))
-			}
-			if len(sets) > 0 {
-				args = append(args, res.id)
-				if _, err := tx.ExecContext(ctx,
-					"UPDATE books SET "+strings.Join(sets, ", ")+" WHERE id = ?",
-					args...,
-				); err != nil {
-					return fmt.Errorf("update books: %w", err)
-				}
-			}
-			if _, err := upsertStmt.ExecContext(ctx, res.id, currentColumnsKey); err != nil {
-				return fmt.Errorf("update metadata_sync: %w", err)
-			}
-			return nil
-		}()
-
-		if writeErr != nil {
-			log.Printf("metadata backfill: skipping %s: %v", res.filename, writeErr)
-			if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+sp); err != nil {
-				return 0, fmt.Errorf("rollback savepoint for %s: %w", res.filename, err)
-			}
-			if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+sp); err != nil {
-				return 0, fmt.Errorf("release savepoint for %s: %w", res.filename, err)
-			}
-			continue
-		}
-
-		if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+sp); err != nil {
-			return 0, fmt.Errorf("release savepoint for %s: %w", res.filename, err)
-		}
-		written++
-	}
-
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit metadata backfill: %w", err)
-	}
-	return written, nil
+	return <-writtenCh, nil
 }
 
 // GetBook returns the book with the given ID belonging to libraryID, or nil if
