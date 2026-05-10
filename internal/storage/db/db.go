@@ -20,6 +20,7 @@ import (
 
 	"github.com/billdaws/bookmanager/internal/pdfinfo"
 	"github.com/billdaws/bookmanager/internal/query"
+	"github.com/billdaws/bookmanager/internal/rarinfo"
 	"github.com/billdaws/bookmanager/internal/scanner"
 	"github.com/billdaws/epub"
 	"github.com/google/uuid"
@@ -837,19 +838,34 @@ func extractCBZCover(path string) string {
 }
 
 func extractCBRCover(path string) string {
-	rr, err := rardecode.OpenReader(path, "")
-	if err != nil {
-		return ""
+	var names []string
+
+	f, err := os.Open(path)
+	if err == nil {
+		names, err = rarinfo.ListFiles(f)
+		f.Close()
 	}
-	defer rr.Close()
-	var images []string
-	for {
-		hdr, err := rr.Next()
-		if err != nil {
-			break
+
+	if err != nil {
+		// Fall back to rardecode for RAR5, encrypted archives, etc.
+		rr, err2 := rardecode.OpenReader(path, "")
+		if err2 != nil {
+			return ""
 		}
-		if isImageFile(hdr.Name) {
-			images = append(images, hdr.Name)
+		defer rr.Close()
+		for {
+			hdr, err2 := rr.Next()
+			if err2 != nil {
+				break
+			}
+			names = append(names, hdr.Name)
+		}
+	}
+
+	var images []string
+	for _, name := range names {
+		if isImageFile(name) {
+			images = append(images, name)
 		}
 	}
 	slices.Sort(images)
