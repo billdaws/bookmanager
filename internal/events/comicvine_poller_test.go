@@ -223,6 +223,11 @@ func TestComicVinePoller_SkipsUnparseable(t *testing.T) {
 	if store.assigned["b1"] != "" {
 		t.Error("unparseable book was assigned to a series")
 	}
+	// Unparseable comics are queued for review so they don't loop forever in
+	// ListComicsNeedingSeriesDetection.
+	if _, inReview := store.reviewQueue["b1"]; !inReview {
+		t.Error("unparseable book was not queued for review")
+	}
 }
 
 func TestComicVinePoller_UsesCache(t *testing.T) {

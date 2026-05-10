@@ -142,6 +142,13 @@ func (p *ComicVinePoller) processComicWithConfidence(ctx context.Context, comic 
 		stripped := comicvine.StripAnnotations(base)
 		if stripped == "" || dirName == "." {
 			log.Printf("comicvine poller: skip %q (filename not parseable)", comic.Filename)
+			// Mark for review so the comic is not retried on every poller pass.
+			// The user can dismiss it or assign it manually from the review page.
+			if err := p.store.MarkComicForReview(ctx, comic.ID, stripped); err != nil {
+				log.Printf("comicvine poller: mark %q for review: %v", comic.Filename, err)
+			} else {
+				p.bridge.Publish(TopicLibraryBooksChanged(comic.LibraryID), nil)
+			}
 			return false, nil
 		}
 		seriesName = stripped

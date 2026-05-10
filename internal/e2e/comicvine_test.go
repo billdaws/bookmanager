@@ -54,10 +54,10 @@ func newMockComicVineServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-// newServerWithComicVine creates a test server pre-loaded with all comic
-// fixtures and a ComicVinePoller pointing at mockURL. Returns the server URL
-// and the library ID.
-func newServerWithComicVine(t *testing.T, mockURL string) (string, string) {
+// setupComicVineServer is the shared backend for comicvine server helpers.
+// It creates a library from the given dir, starts a CV poller pointed at
+// mockURL, and returns the server URL and library ID.
+func setupComicVineServer(t *testing.T, mockURL, dir string) (string, string) {
 	t.Helper()
 
 	database, err := storage.OpenDB(":memory:")
@@ -76,7 +76,6 @@ func newServerWithComicVine(t *testing.T, mockURL string) (string, string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	dir := symlinkTestdata(t)
 	files, err := scanner.ScanDirectory(dir)
 	if err != nil {
 		t.Fatalf("scan testdata: %v", err)
@@ -101,6 +100,14 @@ func newServerWithComicVine(t *testing.T, mockURL string) (string, string) {
 	t.Cleanup(srv.Close)
 
 	return srv.URL, libID
+}
+
+// newServerWithComicVine creates a test server pre-loaded with only the
+// parseable comic fixtures (Astounding Comics 01–06) and a ComicVinePoller
+// pointing at mockURL. Returns the server URL and the library ID.
+func newServerWithComicVine(t *testing.T, mockURL string) (string, string) {
+	t.Helper()
+	return setupComicVineServer(t, mockURL, symlinkComicsOnly(t))
 }
 
 // newMockLowConfidenceComicVineServer returns a test server that always
@@ -132,54 +139,14 @@ func newMockLowConfidenceComicVineServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-// newServerWithLowConfidenceCV creates a test server pre-loaded with comic
-// fixtures and a ComicVinePoller pointing at the low-confidence mock.
+// newServerWithLowConfidenceCV creates a test server pre-loaded with only the
+// parseable comic fixtures (Astounding Comics 01–06) and a ComicVinePoller
+// pointing at the low-confidence mock.
 func newServerWithLowConfidenceCV(t *testing.T) (string, string) {
 	t.Helper()
-
-	database, err := storage.OpenDB(":memory:")
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { database.Close() })
-
-	store := storage.NewStore(database)
-	if err := store.SetEncryptionKey(testEncryptionKey); err != nil {
-		t.Fatalf("set encryption key: %v", err)
-	}
-
-	bridge := events.NewEventBridge(nil)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	dir := symlinkTestdata(t)
-	files, err := scanner.ScanDirectory(dir)
-	if err != nil {
-		t.Fatalf("scan testdata: %v", err)
-	}
-
-	libID, err := store.CreateLibraryWithBooks(ctx, "Comics", dir, files)
-	if err != nil {
-		t.Fatalf("create library: %v", err)
-	}
-
 	mockSrv := newMockLowConfidenceComicVineServer(t)
 	t.Cleanup(mockSrv.Close)
-
-	cvClient := cv.NewClientWithInterval(mockSrv.URL, "test-key", 1*time.Millisecond)
-	cvPoller := events.NewComicVinePoller(store, cvClient, bridge, 50*time.Millisecond)
-	go cvPoller.Run(ctx)
-
-	mux := http.NewServeMux()
-	if err := web.Register(mux, store, bridge, noopPoller{}, cvPoller, cvPoller, noopSender{}); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-
-	return srv.URL, libID
+	return setupComicVineServer(t, mockSrv.URL, symlinkComicsOnly(t))
 }
 
 // TestComicVinePollerAssignsSeries checks that after the CV poller runs the
@@ -198,6 +165,10 @@ func TestComicVinePollerAssignsSeries(t *testing.T) {
 	// The SSE connection updates the book list once the poller has run.
 	// MustElementR retries until the element appears (up to the page timeout).
 	page.MustElementR("#book-list", "Astounding Comics")
+
+	// All 6 comics must be assigned — the series badge must show exactly 6.
+	// If any comic was unexpectedly skipped this assertion will time out and fail.
+	page.MustElementR(`#book-list a[href*="/series/"] span`, "6")
 }
 
 // TestComicVineSkipsUnparseable checks that a file without a recognisable
@@ -208,7 +179,10 @@ func TestComicVineSkipsUnparseable(t *testing.T) {
 	mockSrv := newMockComicVineServer(t)
 	defer mockSrv.Close()
 
-	baseURL, libID := newServerWithComicVine(t, mockSrv.URL)
+	// Use all testdata fixtures so not-a-series.cbz is present alongside the
+	// parseable comics. newServerWithComicVine uses only parseable fixtures, so
+	// we call setupComicVineServer directly with the full set.
+	baseURL, libID := setupComicVineServer(t, mockSrv.URL, symlinkTestdata(t))
 	page := newPage(t)
 
 	page.MustNavigate(baseURL + "/library/" + libID)
@@ -231,8 +205,9 @@ func TestComicVineReviewQueue_ShowsBadgeAndPendingComic(t *testing.T) {
 
 	page.MustNavigate(baseURL + "/library/" + libID)
 
-	// Wait until the poller has run and queued books for review.
-	page.MustElementR("body", "pending series review")
+	// Wait until all 6 comics are queued for review. If any comic was skipped
+	// instead of queued this assertion will time out and fail.
+	page.MustElementR("body", "6 comic")
 
 	// Navigate to the review page and confirm a book appears.
 	waitNav := page.MustWaitNavigation()
@@ -240,6 +215,12 @@ func TestComicVineReviewQueue_ShowsBadgeAndPendingComic(t *testing.T) {
 	waitNav()
 
 	page.MustElementR("body", `\.cbz|\.cbr`)
+
+	// All 6 parseable comics must appear in the review queue.
+	sections := page.MustElements("section")
+	if got := len(sections); got != 6 {
+		t.Errorf("review queue: got %d items, want 6", got)
+	}
 }
 
 // TestComicVineReviewQueue_DismissRemoves checks that clicking Dismiss on the
@@ -250,20 +231,27 @@ func TestComicVineReviewQueue_DismissRemoves(t *testing.T) {
 	baseURL, libID := newServerWithLowConfidenceCV(t)
 	page := newPage(t)
 
-	// Wait for the review badge to appear.
+	// Wait for all 6 comics to be queued for review.
 	page.MustNavigate(baseURL + "/library/" + libID)
-	page.MustElementR("body", "pending series review")
+	page.MustElementR("body", "6 comic")
 
-	// Navigate to the review page.
+	// Navigate to the review page and verify all 6 are present.
 	page.MustNavigate(baseURL + "/library/" + libID + "/review")
 	page.MustElementR("body", `\.cbz|\.cbr`)
+	sections := page.MustElements("section")
+	if got := len(sections); got != 6 {
+		t.Fatalf("review queue before dismiss: got %d items, want 6", got)
+	}
 
 	// Click the first Dismiss button.
 	waitNav := page.MustWaitNavigation()
 	page.MustElement(`form input[name="dismiss"]`).MustParent().MustElement(`button`).MustClick()
 	waitNav()
 
-	// After dismissing, the page either shows no more pending items or has fewer.
-	// The review page should still load without error (200 OK).
+	// After dismissing one, 5 items should remain.
 	page.MustElementR("body", "Pending series review")
+	sections = page.MustElements("section")
+	if got := len(sections); got != 5 {
+		t.Errorf("review queue after dismiss: got %d items, want 5", got)
+	}
 }

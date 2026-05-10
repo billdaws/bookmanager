@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -255,6 +256,33 @@ func symlinkTestdata(t *testing.T) string {
 	}
 	for _, e := range entries {
 		if e.IsDir() {
+			continue
+		}
+		src, err := filepath.Abs(filepath.Join("testdata/raw", e.Name()))
+		if err != nil {
+			t.Fatalf("abs path for %s: %v", e.Name(), err)
+		}
+		if err := os.Symlink(src, filepath.Join(dir, e.Name())); err != nil {
+			t.Fatalf("symlink %s: %v", e.Name(), err)
+		}
+	}
+	return dir
+}
+
+// symlinkComicsOnly creates a temp dir and symlinks only the parseable comic
+// fixtures (files whose names begin with "Astounding Comics") from testdata/raw.
+// Use this for ComicVine poller tests that require all comics to be processed —
+// it excludes non-comic files and deliberately unparseable fixtures so that
+// unexpected skips cause test failures rather than silent passes.
+func symlinkComicsOnly(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	entries, err := os.ReadDir("testdata/raw")
+	if err != nil {
+		t.Fatalf("read testdata/raw: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "Astounding Comics") {
 			continue
 		}
 		src, err := filepath.Abs(filepath.Join("testdata/raw", e.Name()))
