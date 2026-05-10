@@ -2,9 +2,15 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"os/signal"
+	"runtime/pprof"
+	"syscall"
 	"time"
 
 	"github.com/billdaws/bookmanager/internal/email"
@@ -31,6 +37,28 @@ type config struct {
 }
 
 func main() {
+	cpuprofile := flag.String("cpuprofile", "", "write cpu profile to file on exit")
+	flag.Parse()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatalf("cpuprofile: %v", err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatalf("cpuprofile: %v", err)
+		}
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sig
+			pprof.StopCPUProfile()
+			f.Close()
+			log.Printf("cpu profile written to %s", *cpuprofile)
+			os.Exit(0)
+		}()
+	}
+
 	var cfg config
 	if err := env.Set(&cfg); err != nil {
 		log.Fatalf("config: %v", err)
@@ -80,6 +108,11 @@ func main() {
 	}
 
 	emailSvc := email.NewResendSender(cfg.ResendAPIKey, cfg.FromEmail)
+
+	go func() {
+		log.Println("pprof listening on :6060")
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	mux := http.NewServeMux()
 	if err := web.Register(mux, store, bridge, metadataPoller, cvPoller, cvPoller, emailSvc); err != nil {
