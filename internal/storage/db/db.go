@@ -18,13 +18,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/billdaws/bookmanager/internal/pdfinfo"
 	"github.com/billdaws/bookmanager/internal/query"
 	"github.com/billdaws/bookmanager/internal/scanner"
 	"github.com/billdaws/epub"
 	"github.com/google/uuid"
 	"github.com/nwaples/rardecode"
-	"github.com/pdfcpu/pdfcpu/pkg/api"
-	pdfmodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
@@ -860,20 +859,18 @@ func extractCBRCover(path string) string {
 	return images[0]
 }
 
-func extractPDFMetadata(path string) (title, author string, _ string) {
+func extractPDFMetadata(path string) (title, author, publicationDate string) {
 	f, err := os.Open(path)
 	if err != nil {
 		return
 	}
 	defer f.Close()
 
-	conf := pdfmodel.NewDefaultConfiguration()
-	conf.ValidationMode = pdfmodel.ValidationRelaxed
-	info, err := api.PDFInfo(f, path, nil, false, conf)
+	info, err := pdfinfo.ReadInfo(f)
 	if err != nil {
 		return
 	}
-	return info.Title, info.Author, ""
+	return info.Title, info.Author, info.CreationDate
 }
 
 func extractEpubMetadata(path string) (title, authors, publicationDate, coverPath string) {
