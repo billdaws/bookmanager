@@ -24,6 +24,7 @@ type comicvineReviewStore interface {
 	GetBook(ctx context.Context, libraryID, bookID string) (*storage.Book, error)
 	ListComicsInReviewQueue(ctx context.Context, libraryID string) ([]storage.ComicReviewRef, error)
 	RemoveComicFromReview(ctx context.Context, bookID string) error
+	DismissComicFromReview(ctx context.Context, bookID string) error
 	UpsertSeries(ctx context.Context, libraryID, name string) (string, error)
 	UpsertComicVineVolumeMetadata(ctx context.Context, seriesID string, volumeID int) error
 	UpsertComicVineIssueMetadata(ctx context.Context, bookID string, issueID int, name string, creators []string) error
@@ -131,8 +132,8 @@ func handleComicReviewPost(store comicvineReviewStore, cvReview comicvineReviewA
 
 		// Dismiss without assigning.
 		if r.FormValue("dismiss") == "1" {
-			if err := store.RemoveComicFromReview(r.Context(), bookID); err != nil {
-				log.Printf("handleComicReviewPost: RemoveComicFromReview(%s): %v", bookID, err)
+			if err := store.DismissComicFromReview(r.Context(), bookID); err != nil {
+				log.Printf("handleComicReviewPost: DismissComicFromReview(%s): %v", bookID, err)
 				http.Error(w, "database error", http.StatusInternalServerError)
 				return
 			}

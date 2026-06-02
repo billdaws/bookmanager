@@ -179,14 +179,14 @@ func (s *Store) MarkComicForReview(ctx context.Context, bookID, searchTerm strin
 	return nil
 }
 
-// ListComicsInReviewQueue returns all books in a library that are queued for
-// manual ComicVine series selection.
+// ListComicsInReviewQueue returns all non-dismissed books in a library that are
+// queued for manual ComicVine series selection.
 func (s *Store) ListComicsInReviewQueue(ctx context.Context, libraryID string) ([]ComicReviewRef, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT b.id, b.library_id, b.filename, r.search_term
 		FROM comicvine_series_review r
 		JOIN books b ON b.id = r.book_id
-		WHERE b.library_id = ?
+		WHERE b.library_id = ? AND r.dismissed = 0
 		ORDER BY r.created_at ASC`,
 		libraryID,
 	)
@@ -206,14 +206,14 @@ func (s *Store) ListComicsInReviewQueue(ctx context.Context, libraryID string) (
 	return refs, rows.Err()
 }
 
-// CountComicsInReviewQueue returns how many books in a library are awaiting
-// manual series selection.
+// CountComicsInReviewQueue returns how many non-dismissed books in a library
+// are awaiting manual series selection.
 func (s *Store) CountComicsInReviewQueue(ctx context.Context, libraryID string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM comicvine_series_review r
 		JOIN books b ON b.id = r.book_id
-		WHERE b.library_id = ?`,
+		WHERE b.library_id = ? AND r.dismissed = 0`,
 		libraryID,
 	).Scan(&n)
 	if err != nil {
@@ -222,8 +222,10 @@ func (s *Store) CountComicsInReviewQueue(ctx context.Context, libraryID string) 
 	return n, nil
 }
 
-// RemoveComicFromReview deletes a book's entry from the review queue, typically
-// after the user has selected a series or dismissed the prompt.
+// RemoveComicFromReview deletes a book's entry from the review queue. Use this
+// after the book has been assigned to a series (it will then be excluded from
+// ListComicsNeedingSeriesDetection via series_id IS NULL). For user dismissals
+// without assignment, use DismissComicFromReview instead.
 func (s *Store) RemoveComicFromReview(ctx context.Context, bookID string) error {
 	_, err := s.db.ExecContext(ctx,
 		"DELETE FROM comicvine_series_review WHERE book_id = ?",
@@ -231,6 +233,19 @@ func (s *Store) RemoveComicFromReview(ctx context.Context, bookID string) error 
 	)
 	if err != nil {
 		return fmt.Errorf("remove comic from review: %w", err)
+	}
+	return nil
+}
+
+// DismissComicFromReview marks a book as dismissed in the review queue so it
+// is hidden from the UI and not re-queued by the poller on future passes.
+func (s *Store) DismissComicFromReview(ctx context.Context, bookID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE comicvine_series_review SET dismissed = 1 WHERE book_id = ?",
+		bookID,
+	)
+	if err != nil {
+		return fmt.Errorf("dismiss comic from review: %w", err)
 	}
 	return nil
 }
