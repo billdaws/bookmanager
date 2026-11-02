@@ -62,7 +62,7 @@ func (s *Store) ListLibraryItems(ctx context.Context, libraryID string, cursor R
 
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT kind, id, sort_key, display_name, cover_book_id, book_count,
-		       filename, title, authors, publication_date, cover_path
+		       filename, title, authors, publication_date, cover_path, file_mtime
 		FROM library_items
 		%s
 		ORDER BY sort_key, kind, id
@@ -84,6 +84,7 @@ func (s *Store) ListLibraryItems(ctx context.Context, libraryID string, cursor R
 		authors     string
 		pubDate     string
 		coverPath   string
+		fileMtime   string
 	}
 
 	var raws []rawRow
@@ -91,7 +92,7 @@ func (s *Store) ListLibraryItems(ctx context.Context, libraryID string, cursor R
 		var r rawRow
 		if err := rows.Scan(
 			&r.kind, &r.id, &r.sortKey, &r.displayName, &r.coverBookID, &r.bookCount,
-			&r.filename, &r.title, &r.authors, &r.pubDate, &r.coverPath,
+			&r.filename, &r.title, &r.authors, &r.pubDate, &r.coverPath, &r.fileMtime,
 		); err != nil {
 			return LibraryItemsPage{}, err
 		}
@@ -131,6 +132,7 @@ func (s *Store) ListLibraryItems(ctx context.Context, libraryID string, cursor R
 				Authors:         r.authors,
 				PublicationDate: r.pubDate,
 				CoverPath:       r.coverPath,
+				FileMtime:       r.fileMtime,
 			}
 			items[i] = LibraryItem{Kind: "book", Book: &b}
 		}

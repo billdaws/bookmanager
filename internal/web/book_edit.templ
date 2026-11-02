@@ -74,6 +74,18 @@ templ bookEditSheet(libraryID string, book storage.Book, allSeries []storage.Ser
 						Save
 					}
 				</form>
+				<div class="space-y-1 border-t pt-4">
+					@label.Label() {
+						File
+					}
+					<p class="text-xs text-muted-foreground break-all select-all">{ book.Filename }</p>
+					if book.FileMtime != "" {
+						@label.Label() {
+							Modified
+						}
+						<p class="text-xs text-muted-foreground">{ formatFileMtime(book.FileMtime) }</p>
+					}
+				</div>
 			</div>
 		}
 	}

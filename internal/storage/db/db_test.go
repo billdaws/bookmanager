@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/billdaws/epub"
 )
@@ -423,5 +424,31 @@ func TestNormalizeAuthors_TrailingSemicolon(t *testing.T) {
 	}
 	if authors != "Andy Weir" {
 		t.Errorf("authors = %q, want %q", authors, "Andy Weir")
+	}
+}
+
+func TestBackfillFileMtimes(t *testing.T) {
+	s := openTestStore(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "book.epub"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(filepath.Join(dir, "book.epub"), want, want); err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.CreateLibraryWithBooks(context.Background(), "Lib", dir, []string{"book.epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BackfillFileMtimes(context.Background(), id, dir); err != nil {
+		t.Fatal(err)
+	}
+	books, err := s.ListBooks(context.Background(), id)
+	if err != nil || len(books) != 1 {
+		t.Fatalf("ListBooks: %v, %d books", err, len(books))
+	}
+	if got := books[0].FileMtime; got != "2020-01-02T03:04:05Z" {
+		t.Errorf("FileMtime = %q", got)
 	}
 }
