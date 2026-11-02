@@ -30,6 +30,12 @@ templ BookSendPage(data bookSendPageData) {
 							</label>
 						}
 					</fieldset>
+					if isMobiFormat(data.Book.Filename) {
+						<label class="flex items-center gap-2 cursor-pointer">
+							<input type="checkbox" name="convert_to_epub" value="on" class="rounded"/>
+							<span class="text-sm">Convert to EPUB before sending</span>
+						</label>
+					}
 					@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
 						Send
 					}

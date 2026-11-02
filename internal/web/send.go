@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/billdaws/bookmanager/internal/convert"
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 )
 
@@ -22,6 +24,11 @@ type bookSendStore interface {
 	libraryStore
 	recipientStore
 	sendStore
+}
+
+// isMobiFormat reports whether filename has a MOBI/AZW extension.
+func isMobiFormat(filename string) bool {
+	return convert.IsMobiFormat(filename)
 }
 
 func handleBookSendPage(store bookSendStore) http.HandlerFunc {
@@ -101,6 +108,32 @@ func handleBookSend(store bookSendStore, sender emailSender) http.HandlerFunc {
 		}
 
 		log.Printf("handleBookSend: sending book %s (%d bytes) to %d recipient(s)", bookID, fileSize, len(recipientIDs))
+
+		if r.Form.Get("convert_to_epub") == "on" && convert.IsMobiFormat(book.Filename) {
+			stem := filepath.Base(strings.TrimSuffix(book.Filename, filepath.Ext(book.Filename)))
+			tmpDir, tmpErr := os.MkdirTemp("", "bookmanager-convert-*")
+			if tmpErr != nil {
+				log.Printf("handleBookSend: create temp dir: %v", tmpErr)
+				http.Redirect(w, r, "/library/"+libraryID+"/book/"+bookID+"/send", http.StatusSeeOther)
+				return
+			}
+			defer os.RemoveAll(tmpDir)
+			epubPath := filepath.Join(tmpDir, stem+".epub")
+			f, createErr := os.Create(epubPath)
+			if createErr != nil {
+				log.Printf("handleBookSend: create epub: %v", createErr)
+				http.Redirect(w, r, "/library/"+libraryID+"/book/"+bookID+"/send", http.StatusSeeOther)
+				return
+			}
+			convertErr := convert.MobiToEpub(bookPath, f)
+			f.Close()
+			if convertErr != nil {
+				log.Printf("handleBookSend: MobiToEpub: %v", convertErr)
+				http.Redirect(w, r, "/library/"+libraryID+"/book/"+bookID+"/send", http.StatusSeeOther)
+				return
+			}
+			bookPath = epubPath
+		}
 
 		for _, recipientID := range recipientIDs {
 			recipient, err := store.GetRecipient(r.Context(), recipientID)
