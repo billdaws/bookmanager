@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/billdaws/bookmanager/internal/events"
 	"github.com/billdaws/bookmanager/internal/query"
@@ -20,6 +21,7 @@ import (
 	storage "github.com/billdaws/bookmanager/internal/storage/db"
 	"github.com/nwaples/rardecode"
 	"golang.org/x/image/draw"
+	"golang.org/x/text/unicode/norm"
 )
 
 // libraryStore is the subset of storage.Store methods used by the library handlers.
@@ -102,6 +104,16 @@ func bookDisplayLabel(b storage.Book) string {
 	return b.Authors + " - " + b.Title
 }
 
+// formatFileMtime renders an RFC 3339 timestamp in local time; unparseable
+// input is returned unchanged.
+func formatFileMtime(v string) string {
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return v
+	}
+	return t.Local().Format("2006-01-02 15:04")
+}
+
 func bookYear(b storage.Book) string {
 	if len(b.PublicationDate) >= 4 {
 		return b.PublicationDate[:4]
@@ -168,7 +180,7 @@ func handleCreateLibrary(store libraryStore, bridge *events.EventBridge, metadat
 		}
 
 		name := strings.TrimSpace(r.FormValue("name"))
-		dir := strings.TrimSpace(r.FormValue("directory"))
+		dir := norm.NFC.String(strings.TrimSpace(r.FormValue("directory")))
 		log.Printf("handleCreateLibrary: name=%q dir=%q", name, dir)
 
 		renderError := func(msg string) {

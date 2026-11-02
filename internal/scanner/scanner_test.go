@@ -143,3 +143,30 @@ func TestScanDirectory_EmptyDir(t *testing.T) {
 		t.Errorf("expected empty result, got %v", got)
 	}
 }
+
+func TestScanDirectory_NormalizesResultsToNFC(t *testing.T) {
+	dir := t.TempDir()
+
+	// NFD: 'a' (U+0061) + combining acute accent (U+0301)
+	nfdName := "Braás.epub"
+	// NFC: precomposed á (U+00E1)
+	nfcName := "Braás.epub"
+
+	f, err := os.Create(filepath.Join(dir, nfdName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	got, err := ScanDirectory(dir)
+	if err != nil {
+		t.Fatalf("ScanDirectory: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("got %d results, want 1: %v", len(got), got)
+	}
+	if got[0] != nfcName {
+		t.Errorf("got %q (% x), want %q (% x)", got[0], []byte(got[0]), nfcName, []byte(nfcName))
+	}
+}

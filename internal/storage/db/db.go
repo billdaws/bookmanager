@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -26,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nwaples/rardecode"
 	"github.com/pressly/goose/v3"
+	"golang.org/x/text/unicode/norm"
 	_ "modernc.org/sqlite"
 )
 
@@ -64,6 +66,7 @@ type Book struct {
 	SeriesID        string // empty if not in a series
 	SeriesIndex     *int   // nil if not in a series or index not set
 	SeriesDisplay   string // human-readable label (e.g. "Vol. 1"); empty if not set
+	FileMtime       string // RFC 3339 UTC modification time of the file when indexed; empty if unknown
 }
 
 // Store is the SQLite-backed data store. Callers that need to accept any
@@ -106,7 +109,7 @@ var currentColumnsKey = strings.Join(extractableColumns, ",")
 
 // bookColumns is the SELECT column list for all book queries. The column order
 // must match scanBook.
-const bookColumns = `id, filename, COALESCE(title,''), COALESCE(authors,''), COALESCE(publication_date,''), COALESCE(cover_path,''), COALESCE(series_id,''), series_index, COALESCE(series_display,'')`
+const bookColumns = `id, filename, COALESCE(title,''), COALESCE(authors,''), COALESCE(publication_date,''), COALESCE(cover_path,''), COALESCE(series_id,''), series_index, COALESCE(series_display,''), COALESCE(file_mtime,'')`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -120,7 +123,7 @@ func scanBook(rs rowScanner) (Book, error) {
 	if err := rs.Scan(
 		&b.ID, &b.Filename, &b.Title, &b.Authors,
 		&b.PublicationDate, &b.CoverPath,
-		&b.SeriesID, &seriesIdx, &b.SeriesDisplay,
+		&b.SeriesID, &seriesIdx, &b.SeriesDisplay, &b.FileMtime,
 	); err != nil {
 		return Book{}, err
 	}
@@ -656,10 +659,56 @@ func (s *Store) UpdateBookMetadata(ctx context.Context, bookID, title, authors, 
 	return nil
 }
 
+// fileMtime returns path's modification time as RFC 3339 UTC, or "" if it
+// cannot be read.
+func fileMtime(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fi.ModTime().UTC().Format(time.RFC3339)
+}
+
+// BackfillFileMtimes records the file modification time for books indexed
+// before file_mtime existed. Books whose file cannot be stat'd are left NULL.
+func (s *Store) BackfillFileMtimes(ctx context.Context, libraryID, dir string) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, filename FROM books WHERE library_id = ? AND file_mtime IS NULL`, libraryID)
+	if err != nil {
+		return fmt.Errorf("list books without mtime: %w", err)
+	}
+	type idName struct{ id, name string }
+	var todo []idName
+	for rows.Next() {
+		var r idName
+		if err := rows.Scan(&r.id, &r.name); err != nil {
+			rows.Close()
+			return err
+		}
+		todo = append(todo, r)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, r := range todo {
+		if m := fileMtime(filepath.Join(dir, r.name)); m != "" {
+			if _, err := s.db.ExecContext(ctx, `UPDATE books SET file_mtime = ? WHERE id = ?`, m, r.id); err != nil {
+				return fmt.Errorf("set file_mtime: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
 // SyncLibrary scans lib's directory and syncs the store to match.
 func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 	filenames, err := scanner.ScanDirectory(lib.Directory)
 	if err != nil {
+		if errors.Is(err, scanner.ErrSMBNFDDirectory) {
+			// Directory exists on the SMB server but is unreachable via POSIX
+			// due to NFD/NFC normalisation. Preserve the existing DB state
+			// rather than treating the directory as empty and removing books.
+			return nil
+		}
 		return err
 	}
 
@@ -673,26 +722,40 @@ func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 		onDisk[f] = true
 	}
 
-	inDB := make(map[string]string, len(books)) // filename → id
+	inDB := make(map[string]string, len(books)) // NFC(filename) → id
+	var toRemove []string
 	for _, b := range books {
-		inDB[b.Filename] = b.ID
+		nfc := norm.NFC.String(b.Filename)
+		if _, exists := inDB[nfc]; exists {
+			// Duplicate row for the same file — remove the extra.
+			toRemove = append(toRemove, b.ID)
+		} else {
+			inDB[nfc] = b.ID
+		}
 	}
 
 	var toAdd []string
-	for _, f := range filenames {
+	for f := range onDisk {
 		if _, exists := inDB[f]; !exists {
 			toAdd = append(toAdd, f)
 		}
 	}
 
-	var toRemove []string
 	for filename, id := range inDB {
 		if !onDisk[filename] {
 			toRemove = append(toRemove, id)
 		}
 	}
 
-	return s.UpdateBooks(ctx, lib.ID, lib.Directory, toAdd, toRemove)
+	if err := s.UpdateBooks(ctx, lib.ID, lib.Directory, toAdd, toRemove); err != nil {
+		return err
+	}
+	if b, ok := s.(interface {
+		BackfillFileMtimes(ctx context.Context, libraryID, dir string) error
+	}); ok {
+		return b.BackfillFileMtimes(ctx, lib.ID, lib.Directory)
+	}
+	return nil
 }
 
 // insertBookRows is the shared core used by insertBooksWithMetadata and
@@ -700,8 +763,8 @@ func SyncLibrary(ctx context.Context, s syncer, lib *Library) error {
 // metadata_sync entry for each row stamped with the current columns key.
 // insertBatchSize is chosen so that the number of bound parameters per
 // statement stays well within SQLite's SQLITE_MAX_VARIABLE_NUMBER limit
-// (32 766). Books use 6 columns and metadata_sync uses 2, so 1 000 rows ×
-// 6 = 6 000 parameters per batch — safely under the ceiling.
+// (32 766). Books use 8 columns and metadata_sync uses 2, so 1 000 rows ×
+// 8 = 8 000 parameters per batch — safely under the ceiling.
 const insertBatchSize = 1000
 
 func insertBookRows(ctx context.Context, q dbtx, libraryID string, rows []Book, stampMetadataSync bool) error {
@@ -711,13 +774,13 @@ func insertBookRows(ctx context.Context, q dbtx, libraryID string, rows []Book, 
 
 	for _, chunk := range chunkSlice(rows, insertBatchSize) {
 		bookPlaceholders := make([]string, len(chunk))
-		bookArgs := make([]any, 0, len(chunk)*7)
+		bookArgs := make([]any, 0, len(chunk)*8)
 		for i, r := range chunk {
-			bookPlaceholders[i] = "(?, ?, ?, ?, ?, ?, ?)"
-			bookArgs = append(bookArgs, r.ID, libraryID, r.Filename, nilIfEmpty(r.Title), nilIfEmpty(r.Authors), nilIfEmpty(r.PublicationDate), nilIfEmpty(r.CoverPath))
+			bookPlaceholders[i] = "(?, ?, ?, ?, ?, ?, ?, ?)"
+			bookArgs = append(bookArgs, r.ID, libraryID, r.Filename, nilIfEmpty(r.Title), nilIfEmpty(r.Authors), nilIfEmpty(r.PublicationDate), nilIfEmpty(r.CoverPath), nilIfEmpty(r.FileMtime))
 		}
 		if _, err := q.ExecContext(ctx,
-			"INSERT INTO books (id, library_id, filename, title, authors, publication_date, cover_path) VALUES "+strings.Join(bookPlaceholders, ", "),
+			"INSERT INTO books (id, library_id, filename, title, authors, publication_date, cover_path, file_mtime) VALUES "+strings.Join(bookPlaceholders, ", "),
 			bookArgs...,
 		); err != nil {
 			return fmt.Errorf("insert books: %w", err)
@@ -750,7 +813,7 @@ func insertBooksWithMetadata(ctx context.Context, q dbtx, libraryID, dir string,
 	rows := make([]Book, len(filenames))
 	for i, fn := range filenames {
 		title, authors, pubDate, coverPath := extractMetadata(filepath.Join(dir, fn))
-		rows[i] = Book{ID: uuid.New().String(), Filename: fn, Title: title, Authors: authors, PublicationDate: pubDate, CoverPath: coverPath}
+		rows[i] = Book{ID: uuid.New().String(), Filename: fn, Title: title, Authors: authors, PublicationDate: pubDate, CoverPath: coverPath, FileMtime: fileMtime(filepath.Join(dir, fn))}
 	}
 	return insertBookRows(ctx, q, libraryID, rows, true)
 }
