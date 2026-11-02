@@ -6,6 +6,7 @@ require (
 	github.com/a-h/templ v0.3.1001
 	github.com/billdaws/comicvine v0.2.0
 	github.com/billdaws/epub v1.0.2
+	github.com/billdaws/mobi v0.1.0
 	github.com/codingconcepts/env v0.0.0-20240618133406-5b0845441187
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
@@ -15,6 +16,9 @@ require (
 	github.com/resend/resend-go/v2 v2.28.0
 	github.com/templui/templui v1.9.4
 	golang.org/x/image v0.32.0
+	golang.org/x/net v0.56.0
+	golang.org/x/sys v0.46.0
+	golang.org/x/text v0.38.0
 	modernc.org/sqlite v1.48.1
 )
 
@@ -40,10 +44,8 @@ require (
 	github.com/ysmood/gson v0.7.3 // indirect
 	github.com/ysmood/leakless v0.9.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
